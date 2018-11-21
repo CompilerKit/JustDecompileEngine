@@ -216,10 +216,10 @@ namespace Telerik.JustDecompiler.Steps
 
             private PropertyReferenceExpression GetPropertyReferenceFromCast(Expression expression)
             {
-				if (!(expression is CastExpression))
+				if (!(expression is ExplicitCastExpression))
 					return null;
 
-				var castExpression = (CastExpression) expression;
+				var castExpression = (ExplicitCastExpression) expression;
 
 				if (castExpression.TargetType.FullName != "System.Int32")
 					return null;
@@ -299,7 +299,7 @@ namespace Telerik.JustDecompiler.Steps
 					TypeReference arrayElementType = GetArrayElementType(arrayExpression);
 					if (arrayElementType != null)
 					{
-                        VariableDefinition newVariable = new VariableDefinition(arrayElementType);
+                        VariableDefinition newVariable = new VariableDefinition(arrayElementType, this.methodContext.Method);
                         methodContext.VariablesToRename.Add(newVariable);
                         return newVariable;
 					}

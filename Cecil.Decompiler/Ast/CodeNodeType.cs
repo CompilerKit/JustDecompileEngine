@@ -60,7 +60,8 @@ namespace Telerik.JustDecompiler.Ast
 		ThisReferenceExpression,
 		BaseReferenceExpression,
 		FieldReferenceExpression,
-		CastExpression,
+		ExplicitCastExpression,
+        ImplicitCastExpression,
 		SafeCastExpression,
 		CanCastExpression,
 		TypeOfExpression,
@@ -120,6 +121,8 @@ namespace Telerik.JustDecompiler.Ast
         CheckedExpression,
         MemberHandleExpression,
         AutoPropertyConstructorInitializerExpression,
-        RaiseEventExpression
+        RaiseEventExpression,
+        RefVariableDeclarationExpression,
+        RefReturnExpression
 	}
 }

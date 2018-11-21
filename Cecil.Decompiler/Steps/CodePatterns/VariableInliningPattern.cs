@@ -16,11 +16,16 @@ namespace Telerik.JustDecompiler.Steps.CodePatterns
     {
         private readonly MethodSpecificContext methodContext;
         private readonly RestrictedVariableInliner inliner;
+        private IVariablesToNotInlineFinder finder;
+        private SimpleDereferencer dereferencer;
 
-        public VariableInliningPattern(CodePatternsContext patternsContext, MethodSpecificContext methodContext) : base(patternsContext, methodContext.Method.Module.TypeSystem)
+        public VariableInliningPattern(CodePatternsContext patternsContext, MethodSpecificContext methodContext, IVariablesToNotInlineFinder finder)
+            : base(patternsContext, methodContext.Method.Module.TypeSystem)
         {
             this.methodContext = methodContext;
             this.inliner = new RestrictedVariableInliner(typeSystem);
+            this.finder = finder;
+            this.dereferencer = new SimpleDereferencer();
         }
 
         public bool TryMatch(StatementCollection statements, out int startIndex, out Statement result, out int replacedStatementsCount)
@@ -63,6 +68,8 @@ namespace Telerik.JustDecompiler.Steps.CodePatterns
                     inlinedSuccessfully = true;
                     markedForRemoval.Add(variable);
                     methodContext.RemoveVariable(variable);
+                    // the statement containing the inlined variable is not at index, since we removed the variable declaration statement
+                    statements[index] = (Statement)this.dereferencer.Visit(statements[index]);
                 }
             }
 
@@ -78,6 +85,8 @@ namespace Telerik.JustDecompiler.Steps.CodePatterns
         private List<int> GetStatementsToInline(StatementCollection statements)
         {
             List<int> result = new List<int>();
+            
+            HashSet<VariableDefinition> variablesToNotInline = this.finder.Find(statements);
 
             BlockStatement parent = (BlockStatement)statements[0].Parent;
             if (parent == null)
@@ -88,6 +97,11 @@ namespace Telerik.JustDecompiler.Steps.CodePatterns
             foreach (KeyValuePair<VariableDefinition, DefineUseCount> pair in patternsContext.VariableToDefineUseCountContext)
             {
                 if (pair.Value.DefineCount != 1 || pair.Value.UseCount != 1)
+                {
+                    continue;
+                }
+
+                if (variablesToNotInline.Contains(pair.Key))
                 {
                     continue;
                 }

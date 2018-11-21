@@ -146,7 +146,7 @@ namespace Telerik.JustDecompiler.Steps
                 return null;
             }
 
-            BlockStatement moveNextBody = moveNextMethod.Body.DecompileYieldStateMachine(decompilationContext.MethodContext, out yieldData);
+            BlockStatement moveNextBody = moveNextMethod.Body.DecompileYieldStateMachine(decompilationContext, out yieldData);
 
             return moveNextBody != null ? GetStatements(moveNextBody) : null;
         }
@@ -191,7 +191,7 @@ namespace Telerik.JustDecompiler.Steps
                 return null;
             }
 
-            BlockStatement getEnumeratorBody = getEnumeratorMethod.Body != null ? getEnumeratorMethod.Body.Decompile(this.Language) : null;
+            BlockStatement getEnumeratorBody = getEnumeratorMethod.Body != null ? getEnumeratorMethod.Body.Decompile(this.decompilationContext.Language) : null;
 
             return getEnumeratorBody.Statements;
         }
@@ -343,7 +343,7 @@ namespace Telerik.JustDecompiler.Steps
                 return parameterMappings[fieldDef].CloneExpressionOnlyAndAttachInstructions(node.UnderlyingSameMethodInstructions);
             }
 
-            VariableDefinition variableDefinition = new VariableDefinition(GetFriendlyName(fieldDef.Name), fieldDef.FieldType);
+            VariableDefinition variableDefinition = new VariableDefinition(GetFriendlyName(fieldDef.Name), fieldDef.FieldType, this.decompilationContext.MethodContext.Method);
             this.decompilationContext.MethodContext.Variables.Add(variableDefinition);
             this.decompilationContext.MethodContext.VariableAssignmentData.Add(variableDefinition, yieldData.FieldAssignmentData[fieldDef]);
             this.decompilationContext.MethodContext.VariablesToRename.Add(variableDefinition);
@@ -403,7 +403,7 @@ namespace Telerik.JustDecompiler.Steps
                         TypeDefinition theDeclaringTypeDef = theMethodReferenceExpression.Method.DeclaringType.Resolve();
                         if (theDeclaringTypeDef == yieldDeclaringType)
                         {
-                            node.Finally = new FinallyClause(theMethodReferenceExpression.Method.Resolve().Body.Decompile(Language), node.Finally.UnderlyingSameMethodInstructions);
+                            node.Finally = new FinallyClause(theMethodReferenceExpression.Method.Resolve().Body.Decompile(this.decompilationContext.Language), node.Finally.UnderlyingSameMethodInstructions);
                         }
                     }
                 }

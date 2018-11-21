@@ -22,7 +22,7 @@ namespace Telerik.JustDecompiler.Steps
             VisitExpressions();
 
             TransformExpressions(new VariableReplacer(variableToAssignExpression));
-            TransformExpressions(new Dereferencer());
+            TransformExpressions(new ComplexDereferencer());
 
             RemoveVariablesFromContext();
 
@@ -100,10 +100,32 @@ namespace Telerik.JustDecompiler.Steps
                 throw new Exception("Managed pointer usage not in SSA");
             }
 
+            if (node.Right.CodeNodeType != CodeNodeType.VariableReferenceExpression &&
+                node.Right.CodeNodeType != CodeNodeType.ArgumentReferenceExpression &&
+                node.Right.CodeNodeType != CodeNodeType.UnaryExpression)
+            {
+                return false;
+            }
+
+            if (node.Right.CodeNodeType == CodeNodeType.UnaryExpression)
+            {
+                UnaryExpression unary = node.Right as UnaryExpression;
+                if (unary.Operator != UnaryOperator.AddressReference)
+                {
+                    return false;
+                }
+
+                if (unary.Operand.CodeNodeType != CodeNodeType.VariableReferenceExpression &&
+                    unary.Operand.CodeNodeType != CodeNodeType.ArgumentReferenceExpression)
+                {
+                    return false;
+                }
+            }
+
             variableToAssignExpression.Add(byRefVariable, node);
             return true;
         }
-
+        
         public override void VisitUnaryExpression(UnaryExpression node)
         {
             if (node.Operator != UnaryOperator.AddressDereference || node.Operand.CodeNodeType != CodeNodeType.VariableReferenceExpression ||
@@ -128,6 +150,18 @@ namespace Telerik.JustDecompiler.Steps
             {
                 if (expressionsToSkip.Contains(node))
                 {
+                    // Although we don't need the result of the traversing those binary expressions, we still should traverse them
+                    // because there could be variable chaining - one variable is assinged some managed pointer, another variable
+                    // is assigned the value of the first variable and then the value of the second variable is used.
+                    //  int& a = &ofSomething;
+                    //  int& b = a;
+                    //  return b;
+                    // If we do not traverse all binary expressions that will be inlined (in this case the first 2 lines) the end
+                    // result would be like this:
+                    //  return a;
+                    // Instead of the correct one:
+                    //  return &ofSomething;
+                    base.VisitBinaryExpression(node);
                     return null;
                 }
                 return base.VisitBinaryExpression(node);
@@ -153,7 +187,7 @@ namespace Telerik.JustDecompiler.Steps
             }
         }
 
-        private class Dereferencer : BaseCodeTransformer
+        private class ComplexDereferencer : SimpleDereferencer
         {
             public override ICodeNode VisitUnaryExpression(UnaryExpression node)
             {
@@ -164,17 +198,11 @@ namespace Telerik.JustDecompiler.Steps
                         return node.Operand;
                     }
 
-                    UnaryExpression unaryOperand = node.Operand as UnaryExpression;
-                    if (unaryOperand != null && (unaryOperand.Operator == UnaryOperator.AddressReference || unaryOperand.Operator == UnaryOperator.AddressOf))
-                    {
-                        return Visit(unaryOperand.Operand);
-                    }
-
-                    CastExpression castOperand = node.Operand as CastExpression;
+                    ExplicitCastExpression castOperand = node.Operand as ExplicitCastExpression;
                     if (castOperand != null && castOperand.TargetType.IsByReference)
                     {
                         TypeReference targetType = (castOperand.TargetType as ByReferenceType).ElementType;
-                        return new CastExpression((Expression)Visit(castOperand.Expression), targetType, null);
+                        return new ExplicitCastExpression((Expression)Visit(castOperand.Expression), targetType, null);
                     }
                 }
                 return base.VisitUnaryExpression(node);

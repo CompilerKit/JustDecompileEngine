@@ -66,7 +66,7 @@
     <TargetFrameworkVersion>v3.5</TargetFrameworkVersion>
     <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)' != 'Debug EngineOnly' And '$(Configuration)' != 'Release EngineOnly' And '$(Configuration)' != 'Debug JustAssembly' And '$(Configuration)' != 'Release JustAssembly' ">
+  <PropertyGroup Condition=" '$(Configuration)' != 'Debug EngineOnly' And '$(Configuration)' != 'Release EngineOnly' And '$(Configuration)' != 'Debug JustAssembly' And '$(Configuration)' != 'Release JustAssembly' And '$(Configuration)' != 'Release Server JustAssembly' ">
     <SignAssembly>true</SignAssembly>
     <AssemblyOriginatorKeyFile>../../JDKey.snk</AssemblyOriginatorKeyFile>
   </PropertyGroup>
@@ -139,10 +139,34 @@
     <Compile Include="..\CommonVersionAssemblyInfo.cs">
       <Link>Properties\CommonVersionAssemblyInfo.cs</Link>
     </Compile>
+    <Compile Include="BaseProjectBuilder.cs" />
+    <Compile Include="Constants\LanguageConstants.cs" />
+    <Compile Include="Constants\UAPConstants.cs" />
+    <Compile Include="Constants\WinRTConstants.cs" />
+    <Compile Include="Contracts\FileManagers\IMsBuildProjectManager.cs" />
+    <Compile Include="Contracts\FileManagers\INetCoreProjectManager.cs" />
+    <Compile Include="Contracts\FileManagers\IWinRTProjectManager.cs" />
+    <Compile Include="Contracts\IAppDefinitionProjectItemWriter.cs" />
+    <Compile Include="Contracts\FileManagers\IProjectManager.cs" />
+    <Compile Include="Contracts\IProjectItemWriter.cs" />
+    <Compile Include="Contracts\IRegularProjectItemWriter.cs" />
+    <Compile Include="Contracts\IResourceProjectItemWriter.cs" />
+    <Compile Include="Contracts\IResXDesignerProjectItemWriter.cs" />
+    <Compile Include="Contracts\IWinFormsProjectItemWriter.cs" />
+    <Compile Include="Contracts\IXamlPageProjectItemWriter.cs" />
+    <Compile Include="Contracts\IXamlProjectItemWriter.cs" />
     <Compile Include="Extensions.cs" />
     <Compile Include="IProjectGenerationNotifier.cs" />
+    <Compile Include="NetCore\NetCoreProject.cs">
+      <DependentUpon>NetCoreProject.xsd</DependentUpon>
+    </Compile>
+    <Compile Include="NetCore\NetCoreProjectBuilder.cs" />
+    <Compile Include="ProjectFileManagers\MsBuildProjectFileManager.cs" />
+    <Compile Include="ProjectFileManagers\NetCoreProjectFileManager.cs" />
+    <Compile Include="ProjectFileManagers\ProjectFileManager.cs" />
+    <Compile Include="ProjectFileManagers\TestNetCoreProjectFileManager.cs" />
+    <Compile Include="ProjectFileManagers\WinRTProjectFileManager.cs" />
     <Compile Include="ProjectGenerationSettings.cs" />
-    <Compile Include="FileGenerationContext.cs" />
     <Compile Include="FilePathsServices\DefaultFilePathsAnalyzer.cs" />
     <Compile Include="FilePathsServices\DefaultFilePathsService.cs" />
     <Compile Include="FilePathsServices\IFilePathsAnalyzer.cs" />
@@ -151,6 +175,7 @@
     <Compile Include="ProjectJsonWriter.cs" />
     <Compile Include="SolutionWriter.cs" />
     <Compile Include="TestMSBuildProjectBuilder.cs" />
+    <Compile Include="TestNetCoreProjectBuilder.cs" />
     <Compile Include="TestWinRTProjectBuilder.cs" />
     <Compile Include="Utilities.cs" />
     <Compile Include="MSBuildProject.cs">
@@ -180,6 +205,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="MSBuildProject.xsd">
+      <SubType>Designer</SubType>
+    </None>
+    <None Include="NetCore\NetCoreProject.xsd">
       <SubType>Designer</SubType>
     </None>
     <None Include="UpdateClassGeenratedFromSchema.bat" />

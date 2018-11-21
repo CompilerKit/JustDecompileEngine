@@ -14,6 +14,7 @@ namespace Telerik.JustDecompiler.Steps
     {
         private readonly Dictionary<FieldDefinition, Expression> parameterMappings = new Dictionary<FieldDefinition, Expression>();
 
+        private DecompilationContext context;
         private MethodSpecificContext methodContext;
         private TypeDefinition stateMachineTypeDef;
         private FieldDefinition builderField;
@@ -24,6 +25,7 @@ namespace Telerik.JustDecompiler.Steps
 
         public BlockStatement Process(DecompilationContext context, BlockStatement body)
         {
+            this.context = context;
             this.methodContext = context.MethodContext;
             this.originalStatements = body.Statements;
             if (Match())
@@ -66,7 +68,12 @@ namespace Telerik.JustDecompiler.Steps
             matcherState = MatcherState.FindAwaitExpression;
             asyncStatements = (StatementCollection)Visit(asyncStatements);
 
-			bool result = matcherState == MatcherState.FindAwaitExpression;
+            // The C# compiler that comes with MSBuild 15.0 (VS 2017 and .NET Core) seems to produce different code that the one coming with
+            // MSBuild 14.0 (VS 2015) and the ones before that. In the new one there is one missing object initialization (when matcherState
+            // is MatcherState.FindInitObj this step is searching for it) and this is causing our pattern matching to fail.
+            // "|| matcherState == MatcherState.FindInitObj" is quick and dirty fix, which can be improved but due to the limited time right now,
+            // I'm leaving it that way.
+            bool result = matcherState == MatcherState.FindAwaitExpression || matcherState == MatcherState.FindInitObj;
             return result;
         }
 
@@ -145,7 +152,7 @@ namespace Telerik.JustDecompiler.Steps
                 return null;
             }
 
-            BlockStatement moveNextStatements = moveNextMethod.Body.DecompileAsyncStateMachine(this.methodContext, out this.asyncData);
+            BlockStatement moveNextStatements = moveNextMethod.Body.DecompileAsyncStateMachine(this.context, out this.asyncData);
             if (moveNextStatements == null)
             {
                 return null;
@@ -332,7 +339,7 @@ namespace Telerik.JustDecompiler.Steps
                             }
                         }
 
-                        if (expression != null && matcherState == MatcherState.FindAwaitExpression)
+                        if (expression != null && (matcherState == MatcherState.FindAwaitExpression || matcherState == MatcherState.FindInitObj))
                         {
                             currentAwaiterVariable = awaiterVariable;
                             awaitedExpression = expression;
@@ -424,8 +431,8 @@ namespace Telerik.JustDecompiler.Steps
 						{
 							if (matcherState == MatcherState.FindIsCompletedInvoke)
 							{
-								matcherState = MatcherState.FindInitObj | MatcherState.FindGetResultInvoke;
-								return null;
+                                matcherState = MatcherState.FindInitObj | MatcherState.FindGetResultInvoke;
+                                return null;
 							}
 						}
 					}
@@ -460,7 +467,7 @@ namespace Telerik.JustDecompiler.Steps
                 return parameterMappings[fieldDef].CloneExpressionOnlyAndAttachInstructions(node.UnderlyingSameMethodInstructions);
             }
 
-            VariableDefinition variableDefinition = new VariableDefinition(GetFriendlyName(fieldDef.Name), fieldDef.FieldType);
+            VariableDefinition variableDefinition = new VariableDefinition(GetFriendlyName(fieldDef.Name), fieldDef.FieldType, this.methodContext.Method);
             this.methodContext.Variables.Add(variableDefinition);
             this.methodContext.VariableAssignmentData.Add(variableDefinition, asyncData.FieldAssignmentData[fieldDef]);
             this.methodContext.VariablesToRename.Add(variableDefinition);
@@ -483,6 +490,16 @@ namespace Telerik.JustDecompiler.Steps
 
         public override ICodeNode VisitVariableReferenceExpression(VariableReferenceExpression node)
         {
+            if (this.asyncData.VariableToFieldMap.ContainsKey(node.Variable))
+            {
+                FieldDefinition fieldDefinition = this.asyncData.VariableToFieldMap[node.Variable].Resolve();
+                if (fieldDefinition != null &&
+                    this.parameterMappings.ContainsKey(fieldDefinition))
+                {
+                    return this.parameterMappings[fieldDefinition].CloneExpressionOnly();
+                }
+            }
+
             this.methodContext.VariablesToRename.Add(node.Variable.Resolve());
             return base.VisitVariableReferenceExpression(node);
         }

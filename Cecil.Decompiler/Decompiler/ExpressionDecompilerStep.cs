@@ -12,6 +12,7 @@ using Telerik.JustDecompiler.Decompiler.DefineUseAnalysis;
 using Telerik.JustDecompiler.Ast.Expressions;
 using Telerik.JustDecompiler.Decompiler.Inlining;
 using System.Reflection;
+using Telerik.JustDecompiler.Languages;
 
 namespace Telerik.JustDecompiler.Decompiler
 {
@@ -28,6 +29,7 @@ namespace Telerik.JustDecompiler.Decompiler
         private readonly Dictionary<int, Expression> offsetToExpression;
         private int currentOffset;
         private readonly HashSet<Expression> used;
+        private DecompilationContext context;
         private MethodSpecificContext methodContext;
         private TypeSystem currentTypeSystem;
         private TypeSpecificContext typeContext;
@@ -35,6 +37,7 @@ namespace Telerik.JustDecompiler.Decompiler
         private readonly Dictionary<VariableReference, KeyValuePair<int, bool>> exceptionVariables;
         private int dummyVarCounter = 0;
         private readonly HashSet<VariableDefinition> stackVariableAssignmentsToRemove = new HashSet<VariableDefinition>();
+        private InstructionBlock currentBlock;
 
         private Instruction CurrentInstruction
         {
@@ -62,6 +65,7 @@ namespace Telerik.JustDecompiler.Decompiler
         /// The body is being unchanged, since statements are not introduced yet at this point.</returns>
         public BlockStatement Process(DecompilationContext theContext, BlockStatement body)
         {
+            context = theContext;
             methodContext = theContext.MethodContext;
             currentTypeSystem = methodContext.Method.Module.TypeSystem;
             typeContext = theContext.TypeContext;
@@ -70,8 +74,8 @@ namespace Telerik.JustDecompiler.Decompiler
 
             methodContext.Expressions = results;
 
-            StackVariableInliningStep stackVariableInliner = new StackVariableInliningStep(methodContext, offsetToExpression);
-            stackVariableInliner.InlineVariables();
+            StackVariablesInliner stackVariablesInliningStep = new StackVariablesInliner(this.methodContext, this.offsetToExpression, this.context.Language.VariablesToNotInlineFinder);
+            stackVariablesInliningStep.InlineVariables();
 
             AddUninlinedStackVariablesToContext();
             ///After all expressions have been made, a type inference is needed.
@@ -83,11 +87,11 @@ namespace Telerik.JustDecompiler.Decompiler
 
             ///This step passes through the binary expressions in the code, and does transformations in them, so that they are typewise correct.
             ///this should be done after the type inference, since expressions containing variables with infered type might need to be fixed in this step.
-            BinaryExpressionsFixer bef = new BinaryExpressionsFixer(methodContext.Method.Module.TypeSystem);
+            FixBinaryExpressionsStep bef = new FixBinaryExpressionsStep(methodContext.Method.Module.TypeSystem);
             bef.Process(theContext, body);
 
-            MethodVariablesInliningStep methodVariableInliner = new MethodVariablesInliningStep(methodContext);
-            methodVariableInliner.InlineVariables();
+            MethodVariablesInliner methodVariablesInliningStep = new MethodVariablesInliner(this.methodContext, this.context.Language.VariablesToNotInlineFinder);
+            methodVariablesInliningStep.InlineVariables();
 
             UsageBasedExpressionFixer literalsFixer = new UsageBasedExpressionFixer(methodContext);
             literalsFixer.FixLiterals();
@@ -116,6 +120,8 @@ namespace Telerik.JustDecompiler.Decompiler
         {
             foreach (InstructionBlock instructionBlock in methodContext.ControlFlowGraph.Blocks)
             {
+                this.currentBlock = instructionBlock;
+
                 List<Expression> resultingExpressions = new List<Expression>();
                 foreach (Instruction instruction in instructionBlock)
                 {
@@ -224,7 +230,14 @@ namespace Telerik.JustDecompiler.Decompiler
             }
             else
             {
-                returnEx = new ReturnExpression(Pop(), new Instruction[] { instruction });
+                if (methodContext.Method.ReturnType.IsByReference)
+                {
+                    returnEx = new RefReturnExpression(Pop(), new Instruction[] { instruction });
+                }
+                else
+                {
+                    returnEx = new ReturnExpression(Pop(), new Instruction[] { instruction });
+                }
             }
             Push(returnEx);
         }
@@ -449,16 +462,16 @@ namespace Telerik.JustDecompiler.Decompiler
                     Expression target = targetMethod.HasThis ? Pop() : null;
                     target = FixCallTarget(instruction, target);
 
-                    MethodReferenceExpression theMethodRefExpression = new MethodReferenceExpression(target, (MethodReference)instruction.Operand, IncludePrefixIfPresent(instruction, Code.Constrained));
+                    MethodReferenceExpression theMethodRefExpression = new MethodReferenceExpression(target, (MethodReference)instruction.Operand, null);
 
                     MethodInvocationExpression invocation;
                     if (currentMethodTypeRef.GetFriendlyFullName(null) == targetMethodTypeRef.GetFriendlyFullName(null))
                     {
-                        invocation = new ThisCtorExpression(theMethodRefExpression, null) { InstanceReference = target };
+                        invocation = new ThisCtorExpression(theMethodRefExpression, IncludePrefixIfPresent(instruction, Code.Constrained)) { InstanceReference = target };
                     }
                     else
                     {
-                        invocation = new BaseCtorExpression(theMethodRefExpression, null) { InstanceReference = target };
+                        invocation = new BaseCtorExpression(theMethodRefExpression, IncludePrefixIfPresent(instruction, Code.Constrained)) { InstanceReference = target };
                     }
 
                     ///Adds the arguments to the constructor call
@@ -480,13 +493,18 @@ namespace Telerik.JustDecompiler.Decompiler
                 target = FixCallTarget(instruction, target);
 
                 MethodInvocationExpression invocation =
-                    new MethodInvocationExpression(new MethodReferenceExpression(target, (MethodReference)instruction.Operand, IncludePrefixIfPresent(instruction, Code.Constrained)), null);
+                    new MethodInvocationExpression(new MethodReferenceExpression(target, (MethodReference)instruction.Operand, null), IncludePrefixIfPresent(instruction, Code.Constrained));
 
                 AddRange(invocation.Arguments, arguments);
                 if (!TryProcessRuntimeHelpersInitArray(invocation) && !TryProcessMultidimensionalIndexing(invocation))
                 {
                     invocation.VirtualCall = false;
                     Push(invocation);
+
+                    if (Utilities.IsComputeStringHashMethod(instruction.Operand as MethodReference))
+                    {
+                        this.context.MethodContext.SwitchByStringData.SwitchBlocksStartInstructions.Add(this.currentBlock.First.Offset);
+                    }
                 }
             }
         }
@@ -509,7 +527,7 @@ namespace Telerik.JustDecompiler.Decompiler
                         TypeDefinition targetTypeDef = target.ExpressionType.Resolve();
                         if (targetTypeDef != null && targetTypeDef != methodDef.DeclaringType && !targetTypeDef.IsInterface)
                         {
-                            return new CastExpression(target, methodRef.DeclaringType, null) { IsExplicitInterfaceCast = true };
+                            return new ExplicitCastExpression(target, methodRef.DeclaringType, null) { IsExplicitInterfaceCast = true };
                         }
                     }
                 }
@@ -659,7 +677,7 @@ namespace Telerik.JustDecompiler.Decompiler
             {
                 methodRef.Target = Pop();
             }
-            MethodInvocationExpression invocation = new MethodInvocationExpression(methodRef, null);
+            MethodInvocationExpression invocation = new MethodInvocationExpression(methodRef, new Instruction[] { instruction });
             invocation.Arguments = arguments;
             Push(invocation);
         }
@@ -848,7 +866,7 @@ namespace Telerik.JustDecompiler.Decompiler
             {
                 dummyVarType = toPop.ExpressionType;
             }
-            VariableDefinition dummyVar = new VariableDefinition(dummyVarName, dummyVarType);
+            VariableDefinition dummyVar = new VariableDefinition(dummyVarName, dummyVarType, this.methodContext.Method);
             
             StackVariableDefineUseInfo defineUseInfo = new StackVariableDefineUseInfo();
             defineUseInfo.DefinedAt.Add(instruction.Offset);
@@ -869,7 +887,7 @@ namespace Telerik.JustDecompiler.Decompiler
         /// <returns>Returns true if there is MethodInvocationExpression embeded in <paramref name="expression"/>.</returns>
         public bool CheckForCastBecauseForeach(Expression expression)
         {
-            CastExpression castExpression = expression as CastExpression;
+            ExplicitCastExpression castExpression = expression as ExplicitCastExpression;
             if (castExpression != null && castExpression.Expression is MethodInvocationExpression)
             {
                 return true;
@@ -1620,7 +1638,7 @@ namespace Telerik.JustDecompiler.Decompiler
             if (expression.ExpressionType != null && expression.ExpressionType.GetFriendlyFullName(null) != boxingTypeRef.GetFriendlyFullName(null))
             {
                 // Happens if there was a cast and a box of an enum value to its underlying type - it's transalated as boxing the underlying type
-                expression = new CastExpression(expression, boxingTypeRef, null);
+                expression = new ExplicitCastExpression(expression, boxingTypeRef, null);
             }
             else if (expression.ExpressionType == null && expression.CodeNodeType == CodeNodeType.VariableReferenceExpression)
             {
@@ -1669,7 +1687,7 @@ namespace Telerik.JustDecompiler.Decompiler
         private void PushCastExpression(TypeReference targetType, Instruction instruction)
         {
             Instruction[] instructionArray = instruction != null ? new Instruction[] { instruction } : null;
-            Push(new CastExpression(Pop(), targetType, instructionArray));
+            Push(new ExplicitCastExpression(Pop(), targetType, instructionArray));
         }
 
         /// <summary>
@@ -1699,7 +1717,7 @@ namespace Telerik.JustDecompiler.Decompiler
 
             if (toPush.HasType && IsIntegerType(toPush.ExpressionType))
             {
-                CastExpression theCast = new CastExpression(toPush, new PointerType(methodContext.Method.Module.TypeSystem.Void), new Instruction[] { instruction });
+                ExplicitCastExpression theCast = new ExplicitCastExpression(toPush, new PointerType(methodContext.Method.Module.TypeSystem.Void), new Instruction[] { instruction });
                 Push(theCast);
                 return;
             }
@@ -1882,7 +1900,7 @@ namespace Telerik.JustDecompiler.Decompiler
                 ((addressDereference.ExpressionType.FullName != "System.Boolean") &&
                 (addressDereference.ExpressionType.FullName != type.FullName && type.FullName != "System.Object")))
             {
-                CastExpression resultingCastExpression = new CastExpression(addressDereference, type, null);
+                ExplicitCastExpression resultingCastExpression = new ExplicitCastExpression(addressDereference, type, null);
                 Push(resultingCastExpression);
             }
             else
@@ -2366,7 +2384,7 @@ namespace Telerik.JustDecompiler.Decompiler
             EventDefinition eventDef;
             FieldDefinition fieldDef = (instruction.Operand as FieldReference).Resolve();
             if (fieldDef != null && fieldDef.DeclaringType == methodContext.Method.DeclaringType && methodContext.EnableEventAnalysis &&
-                typeContext.FieldToEventMap.TryGetValue(fieldDef, out eventDef))
+                typeContext.GetFieldToEventMap(this.context.Language).TryGetValue(fieldDef, out eventDef))
             {
                 Push(new EventReferenceExpression(target, eventDef, IncludePrefixIfPresent(instruction, Code.Volatile)));
             }

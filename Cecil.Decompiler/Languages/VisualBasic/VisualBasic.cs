@@ -32,6 +32,8 @@ using System.Collections.Generic;
 using Telerik.JustDecompiler.Decompiler.GotoElimination;
 using Telerik.JustDecompiler.Steps.SwitchByString;
 using Telerik.JustDecompiler.Languages.VisualBasic;
+using Telerik.JustDecompiler.Decompiler.Inlining;
+using Telerik.JustDecompiler.Ast;
 
 namespace Telerik.JustDecompiler.Languages
 {
@@ -39,9 +41,24 @@ namespace Telerik.JustDecompiler.Languages
     {
         private class VisualBasic : BaseLanguage, IVisualBasic
         {
+            private static VisualBasic instance;
+
             private Dictionary<string, string> operators;
 		    private HashSet<string> operatorKeywords;
         
+            static VisualBasic()
+            {
+                instance = new VisualBasic();
+            }
+
+            public static VisualBasic Instance
+            {
+                get
+                {
+                    return instance;
+                }
+            }
+
 		    protected override bool IsLanguageKeyword(string word, HashSet<string> globalKeywords, HashSet<string> contextKeywords)
 		    {
 			    foreach (string globalKeyword in globalKeywords)
@@ -81,7 +98,7 @@ namespace Telerik.JustDecompiler.Languages
 			    return this.operatorKeywords.Contains(@operator);
 		    }
 
-            public VisualBasic()
+            protected VisualBasic()
             {
                 this.operators = new Dictionary<string, string>();
 			    this.operatorKeywords = new HashSet<string>();
@@ -173,14 +190,14 @@ namespace Telerik.JustDecompiler.Languages
 			    }
 		    }
 
-		    public override ILanguageWriter GetWriter(IFormatter formatter, IExceptionFormatter exceptionFormatter, bool writeExceptionsAsComments)
+		    public override ILanguageWriter GetWriter(IFormatter formatter, IExceptionFormatter exceptionFormatter, IWriterSettings settings)
             {
-			    return new VisualBasicWriter(this, formatter, exceptionFormatter, writeExceptionsAsComments);
+			    return new VisualBasicWriter(this, formatter, exceptionFormatter, settings);
             }
 
-		    public override IAssemblyAttributeWriter GetAssemblyAttributeWriter(IFormatter formatter, IExceptionFormatter exceptionFormatter, bool writeExceptionsAsComments)
+		    public override IAssemblyAttributeWriter GetAssemblyAttributeWriter(IFormatter formatter, IExceptionFormatter exceptionFormatter, IWriterSettings settings)
 		    {
-			    return new VisualBasicAssemblyAttributeWriter(this, formatter, exceptionFormatter, writeExceptionsAsComments);
+			    return new VisualBasicAssemblyAttributeWriter(this, formatter, exceptionFormatter, settings);
 		    }
 
 		    //public override DecompilationPipeline CreatePipeline(MethodDefinition method)
@@ -280,7 +297,30 @@ namespace Telerik.JustDecompiler.Languages
                 return result;
             }
 
-		    public override bool HasOutKeyword
+            public override bool IsValidLineStarter(CodeNodeType nodeType)
+            {
+                return nodeType == CodeNodeType.FieldReferenceExpression ||
+                       nodeType == CodeNodeType.PropertyReferenceExpression ||
+                       nodeType == CodeNodeType.MethodInvocationExpression ||
+                       nodeType == CodeNodeType.SafeCastExpression ||
+                       nodeType == CodeNodeType.ExplicitCastExpression ||
+                       nodeType == CodeNodeType.ThisReferenceExpression ||
+                       nodeType == CodeNodeType.BaseReferenceExpression ||
+                       nodeType == CodeNodeType.VariableReferenceExpression ||
+                       nodeType == CodeNodeType.ArgumentReferenceExpression ||
+                       nodeType == CodeNodeType.TypeOfExpression ||
+                       nodeType == CodeNodeType.ArrayIndexerExpression;
+            }
+
+            public override IVariablesToNotInlineFinder VariablesToNotInlineFinder
+            {
+                get
+                {
+                    return new VisualBasicVariablesToNotInlineFinder(this);
+                }
+            }
+
+            public override bool HasOutKeyword
 		    {
 			    get
 			    {
@@ -312,6 +352,30 @@ namespace Telerik.JustDecompiler.Languages
                     return true;
                 }
             }
+
+            public override bool HasDelegateSpecificSyntax
+            {
+                get
+                {
+                    return true;
+                }
+            }
+
+			public override HashSet<string> AttributesToHide
+			{
+				get
+				{
+					string[] attributesToHide = new string[] { "System.ParamArrayAttribute",
+															   "System.Runtime.CompilerServices.IteratorStateMachineAttribute",
+															   "Microsoft.VisualBasic.CompilerServices.StandardModuleAttribute",
+															   "System.Runtime.CompilerServices.ExtensionAttribute",
+															   "System.Diagnostics.DebuggerStepThroughAttribute",
+															   "System.Runtime.CompilerServices.AsyncStateMachineAttribute",
+															   "System.Runtime.CompilerServices.CompilerGeneratedAttribute" };
+
+					return new HashSet<string>(attributesToHide);
+				}
+			}
         }
     }
 }

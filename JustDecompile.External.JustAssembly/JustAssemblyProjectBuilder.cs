@@ -12,6 +12,7 @@ using System.Threading;
 using Telerik.JustDecompiler.Decompiler.WriterContextServices;
 using Telerik.JustDecompiler.Decompiler.Caching;
 using JustDecompile.EngineInfrastructure;
+using Mono.Cecil.AssemblyResolver;
 
 namespace JustDecompile.External.JustAssembly
 {
@@ -19,13 +20,23 @@ namespace JustDecompile.External.JustAssembly
 	{
 		private Dictionary<uint, Dictionary<uint, IDecompilationResults>> decompilationResults;
 
-		public JustAssemblyProjectBuilder(string assemblyPath, string targetPath, ILanguage language, Telerik.JustDecompiler.External.IFileGenerationNotifier notifier)
-			: base(assemblyPath, targetPath, language, new JustAssemblyProjectBuilderFrameworkVersionResolver(), new DecompilationPreferences(), notifier, NoCacheAssemblyInfoService.Instance)
-		{
-			this.decompilationResults = new Dictionary<uint, Dictionary<uint, IDecompilationResults>>();
-		}
+        public JustAssemblyProjectBuilder(string assemblyPath, string targetPath, ILanguage language, Telerik.JustDecompiler.External.IFileGenerationNotifier notifier)
+            : base(assemblyPath, targetPath, language, new JustAssemblyProjectBuilderFrameworkVersionResolver(), new DecompilationPreferences(), notifier, NoCacheAssemblyInfoService.Instance)
+        {
+            this.decompilationResults = new Dictionary<uint, Dictionary<uint, IDecompilationResults>>();
+        }
 
-		public IAssemblyDecompilationResults GenerateFiles(CancellationToken cancellationToken)
+        public JustAssemblyProjectBuilder(string assemblyPath, AssemblyDefinition assembly,
+            Dictionary<ModuleDefinition, Mono.Collections.Generic.Collection<TypeDefinition>> userDefinedTypes,
+             Dictionary<ModuleDefinition, Mono.Collections.Generic.Collection<Resource>> resources,
+            string targetPath, ILanguage language, IDecompilationPreferences preferences, Telerik.JustDecompiler.External.IFileGenerationNotifier notifier)
+            : base(assemblyPath, assembly, userDefinedTypes, resources, targetPath, language, new JustAssemblyProjectBuilderFrameworkVersionResolver(), preferences, NoCacheAssemblyInfoService.Instance)
+        {
+            this.decompilationResults = new Dictionary<uint, Dictionary<uint, IDecompilationResults>>();
+            this.fileGeneratedNotifier = notifier;
+        }
+
+        public IAssemblyDecompilationResults GenerateFiles(CancellationToken cancellationToken)
 		{
 			this.decompilationResults = new Dictionary<uint, Dictionary<uint, IDecompilationResults>>();
 			
@@ -65,7 +76,8 @@ namespace JustDecompile.External.JustAssembly
 		{
 			AvalonEditCodeFormatter formatter = new AvalonEditCodeFormatter(new StringWriter());
 
-			IAssemblyAttributeWriter writer = language.GetAssemblyAttributeWriter(formatter, this.exceptionFormater, true);
+            IWriterSettings settings = new WriterSettings(writeExceptionsAsComments: true);
+			IAssemblyAttributeWriter writer = language.GetAssemblyAttributeWriter(formatter, this.exceptionFormater, settings);
 			IWriterContextService writerContextService = new TypeCollisionWriterContextService(new ProjectGenerationDecompilationCacheService(), decompilationPreferences.RenameInvalidMembers);
 
 			string fileContent;
@@ -276,13 +288,13 @@ namespace JustDecompile.External.JustAssembly
 			// caches are cleared after the assembly attributes have been written, so that
 			// assembly & module contexts aren't being calculated twice.
 		}
-		
+
 		class JustAssemblyProjectBuilderFrameworkVersionResolver : IFrameworkResolver
 		{
-            public FrameworkVersion GetDefaultFallbackFramework4Version()
-            {
-                return FrameworkVersion.v4_0;
-            }
-        }
+			public FrameworkVersion GetDefaultFallbackFramework4Version()
+			{
+				return FrameworkVersion.v4_0;
+			}
+		}
 	}
 }

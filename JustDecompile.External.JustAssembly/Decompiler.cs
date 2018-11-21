@@ -15,6 +15,11 @@ using System.IO;
 using JustDecompile.Tools.MSBuildProjectBuilder;
 using Telerik.JustDecompiler;
 using Mono.Cecil.AssemblyResolver;
+using Telerik.JustDecompiler.External.Interfaces;
+using Telerik.JustDecompiler.External;
+using JustDecompile.Tools.MSBuildProjectBuilder.ProjectFileManagers;
+using JustDecompile.EngineInfrastructure;
+using Telerik.JustDecompiler.Common.NamespaceHierarchy;
 
 namespace JustDecompile.External.JustAssembly
 {
@@ -272,19 +277,20 @@ namespace JustDecompile.External.JustAssembly
 		{
 			ILanguage decompilerLangauge = GetLanguage(language);
 			IFormatter formatter = new PlainTextFormatter(stringWriter);
+            IWriterSettings settings = new WriterSettings(writeExceptionsAsComments: true);
 
-			switch (language)
+            switch (language)
 			{
 				case SupportedLanguage.CSharp:
 					{
 						JustAssemblyCSharpWriter cSharpWriter =
-							new JustAssemblyCSharpWriter(member, new SimpleWriterContextService(new EmptyDecompilationCacheService(), true), decompilerLangauge, formatter, SimpleExceptionFormatter.Instance, true);
+							new JustAssemblyCSharpWriter(member, new SimpleWriterContextService(new EmptyDecompilationCacheService(), true), decompilerLangauge, formatter, SimpleExceptionFormatter.Instance, settings);
 						return new CSharpAttributeWriter(cSharpWriter);
 					}
 				case SupportedLanguage.VB:
 					{
 						JustAssemblyVisualBasicWriter visualBasicWriter = 
-							new JustAssemblyVisualBasicWriter(member, new SimpleWriterContextService(new EmptyDecompilationCacheService(), true), decompilerLangauge, formatter, SimpleExceptionFormatter.Instance, true);
+							new JustAssemblyVisualBasicWriter(member, new SimpleWriterContextService(new EmptyDecompilationCacheService(), true), decompilerLangauge, formatter, SimpleExceptionFormatter.Instance, settings);
 						return new VisualBasicAttributeWriter(visualBasicWriter);
 					}
 				default:
@@ -292,31 +298,40 @@ namespace JustDecompile.External.JustAssembly
 			}
 		}
 
-		public static int GetMaximumPossibleTargetPathLength(string assemblyFilePath, SupportedLanguage language)
+		public static int GetMaximumPossibleTargetPathLength(string assemblyFilePath, SupportedLanguage language, bool decompileDangerousResources)
 		{
 			AssemblyDefinition assembly = GlobalAssemblyResolver.Instance.GetAssemblyDefinition(assemblyFilePath);
 			ILanguage decompilerLanguage = GetLanguage(language);
-			JustAssemblyFilePathsAnalyzer filePathsAnalyzer = new JustAssemblyFilePathsAnalyzer(assembly, decompilerLanguage);
+			JustAssemblyFilePathsAnalyzer filePathsAnalyzer = new JustAssemblyFilePathsAnalyzer(assembly, decompilerLanguage, decompileDangerousResources);
 			return filePathsAnalyzer.GetMaximumPossibleTargetPathLength();
 		}
 
-		public static IAssemblyDecompilationResults GenerateFiles(string assemblyFilePath, string targetPath, SupportedLanguage language,  CancellationToken cancellationToken, IFileGenerationNotifier notifier = null)
+		public static IAssemblyDecompilationResults GenerateFiles(string assemblyFilePath, AssemblyDefinition assembly, string targetPath, SupportedLanguage language,  CancellationToken cancellationToken, bool decompileDangerousResources, IFileGenerationNotifier notifier = null)
 		{
 			ILanguage decompilerLanguage = GetLanguage(language);
 			string csprojFileName = Path.ChangeExtension(Path.GetFileName(assemblyFilePath), decompilerLanguage.VSProjectFileExtension);
 			string csprojTargetPath = Path.Combine(targetPath, csprojFileName);
 
-			JustAssemblyProjectBuilder projectBuilder;
-			if (notifier != null)
-			{
-				projectBuilder = new JustAssemblyProjectBuilder(assemblyFilePath, csprojTargetPath, decompilerLanguage, new FileGenerationNotifier(notifier));
-			}
-			else
-			{
-				projectBuilder = new JustAssemblyProjectBuilder(assemblyFilePath, csprojTargetPath, decompilerLanguage, null);
-			}
+            Dictionary<ModuleDefinition, Mono.Collections.Generic.Collection<TypeDefinition>> assemblyUserDefinedTypes = Utilities.GetUserDefinedTypes(assembly, decompileDangerousResources);
+            Dictionary<ModuleDefinition, Mono.Collections.Generic.Collection<Resource>> assemblyResources = Utilities.GetResources(assembly);
 
-			return projectBuilder.GenerateFiles(cancellationToken);
+            IDecompilationPreferences decompilationPreferences = new DecompilationPreferences()
+            {
+                DecompileDangerousResources = decompileDangerousResources
+            };
+
+            JustAssemblyProjectBuilder projectBuilder;
+
+            if (notifier != null)
+            {
+                projectBuilder = new JustAssemblyProjectBuilder(assemblyFilePath, assembly, assemblyUserDefinedTypes, assemblyResources, csprojTargetPath, decompilerLanguage, decompilationPreferences, new FileGenerationNotifier(notifier));
+            }
+            else
+            {
+                projectBuilder = new JustAssemblyProjectBuilder(assemblyFilePath, assembly, assemblyUserDefinedTypes, assemblyResources, csprojTargetPath, decompilerLanguage, decompilationPreferences, null);
+            }
+
+            return projectBuilder.GenerateFiles(cancellationToken);
 		}
 
 		internal static IMemberDefinition GetMember(string assemblyFilePath, uint moduleToken, uint typeToken, uint memberToken, SupportedLanguage language)
@@ -409,7 +424,15 @@ namespace JustDecompile.External.JustAssembly
 			}
 		}
 
-		static Dictionary<TypesCacheKey, TypeDefinition> TypesCache = new Dictionary<TypesCacheKey, TypeDefinition>();
+        class JustAssemblyProjectBuilderFrameworkVersionResolver : IFrameworkResolver
+        {
+            public FrameworkVersion GetDefaultFallbackFramework4Version()
+            {
+                return FrameworkVersion.v4_0;
+            }
+        }
+
+        static Dictionary<TypesCacheKey, TypeDefinition> TypesCache = new Dictionary<TypesCacheKey, TypeDefinition>();
 		// !!!!!!!!!!!!!!!!!!!!!!!!!!! Implemented only for faster test & debug.  Should be removed or implemented smarter !!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 		private static TypeDefinition GetTypeDefinition(string assemblyFilePath, uint moduleToken, uint typeToken)
@@ -445,8 +468,8 @@ namespace JustDecompile.External.JustAssembly
 		class JustAssemblyCSharpWriter : CSharpWriter
 		{
 			public JustAssemblyCSharpWriter(IMemberDefinition member, IWriterContextService writerContextService, 
-				ILanguage language, IFormatter formatter, IExceptionFormatter exceptionFormatter, bool writeExceptionsAsComments)
-				: base(language, formatter, exceptionFormatter, writeExceptionsAsComments)
+				ILanguage language, IFormatter formatter, IExceptionFormatter exceptionFormatter, IWriterSettings settings)
+				: base(language, formatter, exceptionFormatter, settings)
 			{
 				this.writerContextService = writerContextService;
 				this.writerContext = this.writerContextService.GetWriterContext(member, language);
@@ -456,8 +479,8 @@ namespace JustDecompile.External.JustAssembly
 		class JustAssemblyVisualBasicWriter : VisualBasicWriter
 		{
 			public JustAssemblyVisualBasicWriter(IMemberDefinition member, IWriterContextService writerContextService, 
-				ILanguage language, IFormatter formatter, IExceptionFormatter exceptionFormatter, bool writeExceptionsAsComments)
-				: base(language, formatter, exceptionFormatter, writeExceptionsAsComments)
+				ILanguage language, IFormatter formatter, IExceptionFormatter exceptionFormatter, IWriterSettings settings)
+				: base(language, formatter, exceptionFormatter, settings)
 			{
 				this.writerContextService = writerContextService;
 				this.writerContext = this.writerContextService.GetWriterContext(member, language);

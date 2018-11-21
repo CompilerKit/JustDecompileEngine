@@ -27,6 +27,9 @@ using System;
 using Mono.Cecil;
 using Telerik.JustDecompiler.Decompiler;
 using System.Collections.Generic;
+using Telerik.JustDecompiler.Steps;
+using Telerik.JustDecompiler.Decompiler.Inlining;
+using Telerik.JustDecompiler.Ast;
 
 namespace Telerik.JustDecompiler.Languages
 {
@@ -50,9 +53,9 @@ namespace Telerik.JustDecompiler.Languages
 
 		StringComparer IdentifierComparer { get; }
 
-		ILanguageWriter GetWriter(IFormatter formatter, IExceptionFormatter exceptionFormatter, bool writeExceptionsAsComments);
+        ILanguageWriter GetWriter(IFormatter formatter, IExceptionFormatter exceptionFormatter, IWriterSettings settings);
 		
-		IAssemblyAttributeWriter GetAssemblyAttributeWriter(IFormatter formatter, IExceptionFormatter exceptionFormatter, bool writeExceptionsAsComments);
+		IAssemblyAttributeWriter GetAssemblyAttributeWriter(IFormatter formatter, IExceptionFormatter exceptionFormatter, IWriterSettings settings);
 
         bool IsLanguageKeyword(string word);
 
@@ -67,30 +70,24 @@ namespace Telerik.JustDecompiler.Languages
 		bool IsEscapedWord(string escapedWord);
 
 		bool IsEscapedWord(string escapedWord, string originalWord);
+        
+        DecompilationPipeline CreatePipeline();
 
-		DecompilationPipeline CreatePipeline(MethodDefinition method);
+        DecompilationPipeline CreatePipeline(DecompilationContext context);
 
-        DecompilationPipeline CreatePipeline(MethodDefinition method, DecompilationContext context);
+        DecompilationPipeline CreateLambdaPipeline(DecompilationContext context);
 
-        DecompilationPipeline CreateLambdaPipeline(MethodDefinition method, DecompilationContext context);
-
-        BlockDecompilationPipeline CreateFilterMethodPipeline(MethodDefinition method, DecompilationContext context);
+        BlockDecompilationPipeline CreateFilterMethodPipeline(DecompilationContext context);
 
         // This pipeline is used by the PropertyDecompiler to finish the decompilation of properties, which are partially decompiled
         // using the step from the IntermediateRepresenationPipeline.
-        BlockDecompilationPipeline CreatePropertyPipeline(MethodDefinition method, DecompilationContext context);
+        BlockDecompilationPipeline CreatePropertyPipeline(DecompilationContext context);
 
 		string GetExplicitName(IMemberDefinition member);
 
 		string ReplaceInvalidCharactersInIdentifier(string identifier);
 
         string CommentLines(string text);
-
-		void StopPipeline();
-
-		bool WriteLargeNumbersInHex { get; set; }
-
-		bool IsStopped { get; }
 
 		string VSCodeFileExtension { get; }
 
@@ -107,5 +104,13 @@ namespace Telerik.JustDecompiler.Languages
         bool SupportsInlineInitializationOfAutoProperties { get; }
 
         bool SupportsExceptionFilters { get; }
+
+        IVariablesToNotInlineFinder VariablesToNotInlineFinder { get; }
+
+        bool IsValidLineStarter(CodeNodeType nodeType);
+
+        bool HasDelegateSpecificSyntax { get; }
+
+		HashSet<string> AttributesToHide { get; }
     }
 }

@@ -10,30 +10,35 @@ using Mono.Cecil.Cil;
 
 namespace Telerik.JustDecompiler.Steps
 {
-    class RemoveDelegateCaching : BaseCodeTransformer, IDecompilationStep
+    class RemoveDelegateCachingStep : BaseCodeTransformer, IDecompilationStep
     {
-        private DecompilationContext context;
-        private Dictionary<FieldDefinition, Expression> fieldsToRemove;
-        private Dictionary<VariableReference, Expression> variablesToRemove;
-        private Dictionary<VariableReference, Statement> initializationsToRemove;
+        protected DecompilationContext context;
+        protected Dictionary<FieldDefinition, Expression> fieldToReplacingExpressionMap;
+        protected Dictionary<VariableReference, Expression> variableToReplacingExpressionMap;
+        protected Dictionary<VariableReference, Statement> initializationsToRemove;
         private DelegateCachingVersion cachingVersion;
 
         public BlockStatement Process(DecompilationContext context, BlockStatement body)
         {
             this.context = context;
-            this.fieldsToRemove = new Dictionary<FieldDefinition, Expression>();
-            this.variablesToRemove = new Dictionary<VariableReference, Expression>();
+            this.fieldToReplacingExpressionMap = new Dictionary<FieldDefinition, Expression>();
+            this.variableToReplacingExpressionMap = new Dictionary<VariableReference, Expression>();
             this.initializationsToRemove = new Dictionary<VariableReference, Statement>();
             BlockStatement result = (BlockStatement)Visit(body);
-            RemoveInitializations();
+            ProcessInitializations();
             return result;
         }
 
-        private void RemoveInitializations()
+        protected virtual void ProcessInitializations()
+        {
+            RemoveInitializations();
+        }
+
+        protected void RemoveInitializations()
         {
             foreach (KeyValuePair<VariableReference, Statement> pair in initializationsToRemove)
             {
-                if (!variablesToRemove.ContainsKey(pair.Key))
+                if (!variableToReplacingExpressionMap.ContainsKey(pair.Key))
                 {
                     continue;
                 }
@@ -53,10 +58,15 @@ namespace Telerik.JustDecompiler.Steps
         {
             if (CheckIfStatement(node))
             {
-                return null;
+                return GetIfSubstitution(node);
             }
 
             return base.VisitIfStatement(node);
+        }
+
+        protected virtual ICodeNode GetIfSubstitution(IfStatement node)
+        {
+            return null;
         }
 
         private bool CheckIfStatement(IfStatement theIf)
@@ -168,7 +178,7 @@ namespace Telerik.JustDecompiler.Steps
                 return false;
             }
 
-            if (fieldsToRemove.ContainsKey(theFieldDef))
+            if (fieldToReplacingExpressionMap.ContainsKey(theFieldDef))
             {
                 throw new Exception("A caching field cannot be assigned more than once.");
             }
@@ -185,7 +195,7 @@ namespace Telerik.JustDecompiler.Steps
                 return false;
             }
 
-            fieldsToRemove[theFieldDef] = theAssignExpression.Right;
+            fieldToReplacingExpressionMap[theFieldDef] = theAssignExpression.Right;
             return true;
         }
 
@@ -214,7 +224,7 @@ namespace Telerik.JustDecompiler.Steps
                 return false;
             }
 
-            if (variablesToRemove.ContainsKey(theVariable))
+            if (variableToReplacingExpressionMap.ContainsKey(theVariable))
             {
                 throw new Exception("A caching variable cannot be assigned more than once.");
             }
@@ -226,7 +236,7 @@ namespace Telerik.JustDecompiler.Steps
                 return false;
             }
 
-            variablesToRemove[theVariable] = theAssignExpression.Right;
+            variableToReplacingExpressionMap[theVariable] = theAssignExpression.Right;
             return true;
         }
 
@@ -234,7 +244,7 @@ namespace Telerik.JustDecompiler.Steps
         {
             Expression fieldValue;
             FieldDefinition theFieldDef = node.Field.Resolve();
-            if (theFieldDef != null && fieldsToRemove.TryGetValue(theFieldDef, out fieldValue))
+            if (theFieldDef != null && fieldToReplacingExpressionMap.TryGetValue(theFieldDef, out fieldValue))
             {
                 return fieldValue.CloneExpressionOnlyAndAttachInstructions(node.UnderlyingSameMethodInstructions);
             }
@@ -245,7 +255,7 @@ namespace Telerik.JustDecompiler.Steps
         public override ICodeNode VisitVariableReferenceExpression(VariableReferenceExpression node)
         {
             Expression variableValue;
-            if (variablesToRemove.TryGetValue(node.Variable, out variableValue))
+            if (variableToReplacingExpressionMap.TryGetValue(node.Variable, out variableValue))
             {
                 return variableValue.CloneExpressionOnlyAndAttachInstructions(node.UnderlyingSameMethodInstructions);
             }
@@ -260,14 +270,14 @@ namespace Telerik.JustDecompiler.Steps
                 if (node.Left.CodeNodeType == CodeNodeType.FieldReferenceExpression)
                 {
                     FieldDefinition theFieldDef = (node.Left as FieldReferenceExpression).Field.Resolve();
-                    if (theFieldDef != null && fieldsToRemove.ContainsKey(theFieldDef))
+                    if (theFieldDef != null && fieldToReplacingExpressionMap.ContainsKey(theFieldDef))
                     {
                         throw new Exception("A caching field cannot be assigned more than once.");
                     }
                 }
                 else if (node.Left.CodeNodeType == CodeNodeType.VariableReferenceExpression)
                 {
-                    if (variablesToRemove.ContainsKey((node.Left as VariableReferenceExpression).Variable))
+                    if (variableToReplacingExpressionMap.ContainsKey((node.Left as VariableReferenceExpression).Variable))
                     {
                         throw new Exception("A caching variable cannot be assigned more than once.");
                     }
@@ -301,9 +311,9 @@ namespace Telerik.JustDecompiler.Steps
             }
 
             Expression value = theAssignExpression.Right;
-            if (value.CodeNodeType == CodeNodeType.CastExpression)
+            if (value.CodeNodeType == CodeNodeType.ExplicitCastExpression)
             {
-                value = (value as CastExpression).Expression;
+                value = (value as ExplicitCastExpression).Expression;
             }
 
             if ((value.CodeNodeType != CodeNodeType.LiteralExpression || (value as LiteralExpression).Value != null) &&

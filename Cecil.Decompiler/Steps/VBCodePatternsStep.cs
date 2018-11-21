@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using Telerik.JustDecompiler.Decompiler.Inlining;
 using Telerik.JustDecompiler.Steps.CodePatterns;
 
 namespace Telerik.JustDecompiler.Steps

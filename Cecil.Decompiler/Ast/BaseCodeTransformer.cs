@@ -38,18 +38,6 @@ namespace Telerik.JustDecompiler.Ast
 	{
 		private long visitsOnStack = 0;
 
-		public virtual ILanguage Language
-		{
-			get;
-			set;
-		}
-
-		public virtual MethodDefinition Method
-		{
-			get;
-			set;
-		}
-
 		private ICodeNode DoVisit(ICodeNode node)
 		{
 			if (node == null)
@@ -119,9 +107,11 @@ namespace Telerik.JustDecompiler.Ast
 					return VisitBaseReferenceExpression((BaseReferenceExpression)node);
 				case CodeNodeType.FieldReferenceExpression:
 					return VisitFieldReferenceExpression((FieldReferenceExpression)node);
-				case CodeNodeType.CastExpression:
-					return VisitCastExpression((CastExpression)node);
-				case CodeNodeType.SafeCastExpression:
+				case CodeNodeType.ExplicitCastExpression:
+					return VisitExplicitCastExpression((ExplicitCastExpression)node);
+                case CodeNodeType.ImplicitCastExpression:
+                    return VisitImplicitCastExpression((ImplicitCastExpression)node);
+                case CodeNodeType.SafeCastExpression:
 					return VisitSafeCastExpression((SafeCastExpression)node);
 				case CodeNodeType.CanCastExpression:
 					return VisitCanCastExpression((CanCastExpression)node);
@@ -239,6 +229,10 @@ namespace Telerik.JustDecompiler.Ast
                     return VisitAutoPropertyConstructorInitializerExpression((AutoPropertyConstructorInitializerExpression)node);
                 case CodeNodeType.RaiseEventExpression:
                     return VisitRaiseEventExpression((RaiseEventExpression)node);
+                case CodeNodeType.RefVariableDeclarationExpression:
+                    return VisitRefVariableDeclarationExpression((RefVariableDeclarationExpression)node);
+                case CodeNodeType.RefReturnExpression:
+                    return VisitRefReturnExpression((RefReturnExpression)node);
 				default:
 					throw new ArgumentException();
 			}
@@ -568,13 +562,19 @@ namespace Telerik.JustDecompiler.Ast
 			return node;
 		}
 
-		public virtual ICodeNode VisitCastExpression(CastExpression node)
+		public virtual ICodeNode VisitExplicitCastExpression(ExplicitCastExpression node)
 		{
 			node.Expression = (Expression)Visit(node.Expression);
 			return node;
 		}
 
-		public virtual ICodeNode VisitSafeCastExpression(SafeCastExpression node)
+        public virtual ICodeNode VisitImplicitCastExpression(ImplicitCastExpression node)
+        {
+            node.Expression = (Expression)Visit(node.Expression);
+            return node;
+        }
+
+        public virtual ICodeNode VisitSafeCastExpression(SafeCastExpression node)
 		{
 			node.Expression = (Expression)Visit(node.Expression);
 			return node;
@@ -907,6 +907,17 @@ namespace Telerik.JustDecompiler.Ast
         public virtual ICodeNode VisitRaiseEventExpression(RaiseEventExpression node)
         {
             Visit(node.Arguments);
+            return node;
+        }
+
+        public virtual ICodeNode VisitRefVariableDeclarationExpression(RefVariableDeclarationExpression node)
+        {
+            return node;
+        }
+
+        public virtual ICodeNode VisitRefReturnExpression(RefReturnExpression node)
+        {
+            node.Value = (Expression)Visit(node.Value);
             return node;
         }
     }

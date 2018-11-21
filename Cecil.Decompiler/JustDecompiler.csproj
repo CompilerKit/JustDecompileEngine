@@ -173,7 +173,7 @@
     <TargetFrameworkVersion>v3.5</TargetFrameworkVersion>
     <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)' != 'Debug EngineOnly' And '$(Configuration)' != 'Release EngineOnly' And '$(Configuration)' != 'Debug JustAssembly' And '$(Configuration)' != 'Release JustAssembly' ">
+  <PropertyGroup Condition=" '$(Configuration)' != 'Debug EngineOnly' And '$(Configuration)' != 'Release EngineOnly' And '$(Configuration)' != 'Debug JustAssembly' And '$(Configuration)' != 'Release JustAssembly' And '$(Configuration)' != 'Release Server JustAssembly' ">
     <SignAssembly>true</SignAssembly>
     <AssemblyOriginatorKeyFile>../../JDKey.snk</AssemblyOriginatorKeyFile>
   </PropertyGroup>
@@ -255,8 +255,10 @@
     <Compile Include="Ast\Expressions\AnonymousObjectCreationExpression.cs" />
     <Compile Include="Ast\Expressions\ArrayAssignmentFieldReferenceExpression.cs" />
     <Compile Include="Ast\Expressions\ArrayVariableReferenceExpression.cs" />
+    <Compile Include="Ast\Expressions\CastExpressionBase.cs" />
     <Compile Include="Ast\Expressions\CheckedExpression.cs" />
     <Compile Include="Ast\Expressions\FieldInitializerExpression.cs" />
+    <Compile Include="Ast\Expressions\ImplicitCastExpression.cs" />
     <Compile Include="Ast\Expressions\MemberHandleExpression.cs" />
     <Compile Include="Ast\Expressions\InitializerExpression.cs" />
     <Compile Include="Ast\Expressions\ParenthesesExpression.cs" />
@@ -271,6 +273,8 @@
     <Compile Include="Ast\Expressions\QueryClause.cs" />
     <Compile Include="Ast\Expressions\AutoPropertyConstructorInitializerExpression.cs" />
     <Compile Include="Ast\Expressions\RaiseEventExpression.cs" />
+    <Compile Include="Ast\Expressions\RefReturnExpression.cs" />
+    <Compile Include="Ast\Expressions\RefVariableDeclarationExpression.cs" />
     <Compile Include="Ast\Expressions\SelectClause.cs" />
     <Compile Include="Ast\Expressions\ShortFormReturnExpression.cs" />
     <Compile Include="Ast\Expressions\ArrayVariableDeclarationExpression.cs" />
@@ -282,10 +286,16 @@
     <Compile Include="Ast\Statements\CaseGotoStatement.cs" />
     <Compile Include="Ast\Statements\ExceptionStatement.cs" />
     <Compile Include="Ast\Statements\FinallyClause.cs" />
+    <Compile Include="Ast\Statements\CompilerOptimizedSwitchByStringStatement.cs" />
+    <Compile Include="Common\SwitchHelpers.cs" />
     <Compile Include="Common\UnionFinder.cs" />
     <Compile Include="Common\VariableFinder.cs" />
     <Compile Include="Decompiler\AssignmentAnalysis\OutParameterUsageFinder.cs" />
     <Compile Include="Decompiler\AttributesUtilities.cs" />
+    <Compile Include="Decompiler\Inlining\EmptyVariablesToNotInlineFinder.cs" />
+    <Compile Include="Decompiler\Inlining\IVariablesToNotInlineFinder.cs" />
+    <Compile Include="Decompiler\Inlining\VisualBasicVariablesToNotInlineFinder.cs" />
+    <Compile Include="Decompiler\CompilerOptimizedSwitchByStringData.cs" />
     <Compile Include="Decompiler\TypeNamesComparer.cs" />
     <Compile Include="Decompiler\PropertyDecompiler.cs" />
     <Compile Include="Decompiler\ExplicitlyImplementedMembersCollection.cs" />
@@ -318,17 +328,17 @@
     <Compile Include="Decompiler\DefineUseAnalysis\StackVariableDefineUseInfo.cs" />
     <Compile Include="Decompiler\DependsOnAnalysisVisitor.cs" />
     <Compile Include="Decompiler\Inlining\IVariableInliner.cs" />
-    <Compile Include="Decompiler\Inlining\MethodVariablesInliningStep.cs" />
+    <Compile Include="Decompiler\Inlining\MethodVariablesInliner.cs" />
     <Compile Include="Decompiler\Inlining\RestrictedVariableInliner.cs" />
     <Compile Include="Decompiler\Inlining\SideEffectsFinder.cs" />
     <Compile Include="Decompiler\Inlining\SimpleVariableInliner.cs" />
-    <Compile Include="Decompiler\Inlining\StackVariableInliningStep.cs" />
+    <Compile Include="Decompiler\Inlining\StackVariablesInliner.cs" />
     <Compile Include="Decompiler\IStateMachineData.cs" />
     <Compile Include="Common\PairList.cs" />
     <Compile Include="Decompiler\LogicFlow\DominatorTreeDependentStep.cs" />
     <Compile Include="Decompiler\LogicFlow\DTree\BaseDominatorTreeBuilder.cs" />
     <Compile Include="Decompiler\LogicFlow\DTree\FastDominatorTreeBuilder.cs" />
-    <Compile Include="Decompiler\Inlining\BaseVariableInliningStep.cs" />
+    <Compile Include="Decompiler\Inlining\BaseVariablesInliner.cs" />
     <Compile Include="Decompiler\WriterContextServices\BaseWriterContextService.cs" />
     <Compile Include="Decompiler\WriterContextServices\FrameworkFoldersWriterContextService.cs" />
     <Compile Include="Decompiler\WriterContextServices\IWriterContextService.cs" />
@@ -341,7 +351,6 @@
     <Compile Include="External\DecompilationPreferences.cs" />
     <Compile Include="External\ExceptionThrownNotifier.cs" />
     <Compile Include="External\ExternallyVisibleDecompilationUtilities.cs" />
-    <Compile Include="External\FrameworkVersion.cs" />
     <Compile Include="External\Interfaces\IDecompilationPreferences.cs" />
     <Compile Include="External\Interfaces\IExceptionThrownNotifier.cs" />
     <Compile Include="External\Interfaces\IFileGeneratedInfo.cs" />
@@ -355,14 +364,17 @@
     <Compile Include="External\FileGeneratedInfo.cs" />
     <Compile Include="External\TypeGeneratedInfo.cs" />
     <Compile Include="External\UniqueMemberIdentifier.cs" />
+    <Compile Include="Languages\CodeMappingInfo.cs" />
     <Compile Include="Languages\CodePosition.cs" />
     <Compile Include="Languages\CodeSpan.cs" />
     <Compile Include="Languages\CSharp\CSharpV5.cs" />
     <Compile Include="Languages\CSharp\CSharpV6.cs" />
+    <Compile Include="Languages\CSharp\CSharpV7.cs" />
     <Compile Include="Languages\CSharp\CSharpVersion.cs" />
     <Compile Include="Languages\CSharp\ICSharp.cs" />
     <Compile Include="Languages\ILanguageTestCaseWriter.cs" />
     <Compile Include="Languages\IPositionMaintainingFormatter.cs" />
+    <Compile Include="Languages\IWriterSettings.cs" />
     <Compile Include="Languages\LanguageFactory.cs" />
     <Compile Include="Languages\MemberNamingUtils.cs" />
     <Compile Include="Languages\OffsetSpan.cs" />
@@ -386,9 +398,11 @@
     <Compile Include="Languages\VisualBasic\IVisualBasic.cs" />
     <Compile Include="Languages\VisualBasic\VisualBasicV10.cs" />
     <Compile Include="Languages\VisualBasic\VisualBasicVersion.cs" />
+    <Compile Include="Languages\WriterSettings.cs" />
     <Compile Include="Languages\WritingInfo.cs" />
     <Compile Include="Languages\VisualBasic\VisualBasicAssemblyAttributeWriter.cs" />
     <Compile Include="Mono.Cecil.Extensions\GenericHelper.cs" />
+    <Compile Include="Mono.Cecil.Extensions\IGenericParameterProviderExtensions.cs" />
     <Compile Include="Mono.Cecil.Extensions\ImplementedMember.cs" />
     <Compile Include="Mono.Cecil.Extensions\SecurityDeclarationExtensions.cs" />
     <Compile Include="Steps\AssignOutParametersStep.cs" />
@@ -413,6 +427,7 @@
     <Compile Include="Steps\CodePatterns\VariableInliningPattern.cs" />
     <Compile Include="Steps\CodePatterns\VariableInliningPatternAggressive.cs" />
     <Compile Include="Steps\CreateIfElseIfStatementsStep.cs" />
+    <Compile Include="Steps\CreateCompilerOptimizedSwitchByStringStatementsStep.cs" />
     <Compile Include="Steps\DeduceImplicitDelegates.cs" />
     <Compile Include="Steps\DependsOnAnalysisStep.cs" />
     <Compile Include="Steps\DetermineDestructorStep.cs" />
@@ -433,8 +448,10 @@
     <Compile Include="Steps\RebuildExpressionTreesStep.cs" />
     <Compile Include="Steps\RebuildVBForStatements.cs" />
     <Compile Include="Steps\RebuildLinqQueriesStep.cs" />
+    <Compile Include="Steps\RemoveCompilerOptimizationsStep.cs" />
     <Compile Include="Steps\RenameVBVariables.cs" />
     <Compile Include="Steps\SentinelStep.cs" />
+    <Compile Include="Steps\SimpleDereferencer.cs" />
     <Compile Include="Steps\TransformCatchClausesFilterExpressionStep.cs" />
     <Compile Include="Steps\TransformMemberHandlersStep.cs" />
     <Compile Include="Steps\UnsafeMethodBodyStep.cs" />
@@ -442,6 +459,9 @@
     <Compile Include="Steps\RenameSplitPropertiesMethodsAndBackingFields.cs" />
     <Compile Include="Steps\ArrayVariablesStep.cs" />
     <Compile Include="Steps\VBCodePatternsStep.cs" />
+    <Compile Include="Steps\VBSelfAssignment.cs" />
+    <Compile Include="Steps\VisualBasicRemoveDelegateCachingStep.cs" />
+    <Compile Include="Steps\VisualBasicRemoveUnusedVariablesStep.cs" />
     <Compile Include="ThreadSafeWeakAssemblyResolver.cs" />
     <Compile Include="TwoDimensionalString.cs" />
     <Compile Include="WeakAssemblyResolver.cs" />
@@ -477,7 +497,7 @@
     <Compile Include="Ast\Statements\BreakStatement.cs" />
     <Compile Include="Ast\Expressions\BaseCtorExpression.cs" />
     <Compile Include="Ast\Expressions\CanCastExpression.cs" />
-    <Compile Include="Ast\Expressions\CastExpression.cs" />
+    <Compile Include="Ast\Expressions\ExplicitCastExpression.cs" />
     <Compile Include="Ast\Statements\CatchClause.cs" />
     <Compile Include="Ast\Statements\CatchClauseCollection.cs" />
     <Compile Include="Ast\CodeNodeType.cs" />
@@ -686,8 +706,7 @@
     <Compile Include="Steps\SwitchByString\RebuildSwitchByString.cs" />
     <Compile Include="Steps\EnumHelper.cs" />
     <Compile Include="Steps\BaseStateMachineRemoverStep.cs" />
-    <Compile Include="Steps\IStateMachineRemoverStep.cs" />
-    <Compile Include="Steps\BinaryExpressionsFixer.cs" />
+    <Compile Include="Steps\FixBinaryExpressionsStep.cs" />
     <Compile Include="Steps\CanCastStep.cs" />
     <Compile Include="Steps\CombinedTransformerStep.cs" />
     <Compile Include="Steps\DetermineCtorInvocationStep.cs" />
@@ -704,7 +723,7 @@
     <Compile Include="Steps\RebuildLockStatements.cs" />
     <Compile Include="Steps\RebuildYieldStatementsStep.cs" />
     <Compile Include="Steps\RemoveAsyncStateMachineStep.cs" />
-    <Compile Include="Steps\RemoveDelegateCaching.cs" />
+    <Compile Include="Steps\RemoveDelegateCachingStep.cs" />
     <Compile Include="Steps\RemovePrivateImplemetnationDetailsStep.cs" />
     <Compile Include="Steps\RemoveUnreachableBlocksStep.cs" />
     <Compile Include="Steps\RemoveUnusedVariablesStep.cs" />
@@ -789,7 +808,7 @@
   <PropertyGroup>
     <PreBuildEvent>
       if not "$(ConfigurationName)" == "Debug EngineOnly" if not "$(ConfigurationName)" == "Release EngineOnly" if not "$(ConfigurationName)" == "Debug JustAssembly" if not "$(ConfigurationName)" == "Release JustAssembly" if not "$(ConfigurationName)" == "Release Server JustAssembly" call "$(SolutionDir)COMInterface\BuildNETWrapper.bat" "$(SolutionDir)"
-    </PreBuildEvent>
+</PreBuildEvent>
     <PostBuildEvent>if not "$(ConfigurationName)" == "Debug EngineOnly" if not "$(ConfigurationName)" == "Release EngineOnly" if not "$(ConfigurationName)" == "Debug JustAssembly" if not "$(ConfigurationName)" == "Release JustAssembly" if not "$(ConfigurationName)" == "Release Server JustAssembly" echo F|xcopy /Y "$(SolutionDir)COMInterface\TelerikJustDecompileCOM.tlb" "$(SolutionDir)\UI\ReleaseBuild"</PostBuildEvent>
   </PropertyGroup>
 </Project>

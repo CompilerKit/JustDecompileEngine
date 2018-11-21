@@ -6,6 +6,7 @@ using Telerik.JustDecompiler.Decompiler;
 using Telerik.JustDecompiler.Ast.Statements;
 using Telerik.JustDecompiler.Steps.CodePatterns;
 using Telerik.JustDecompiler.Ast.Expressions;
+using Telerik.JustDecompiler.Decompiler.Inlining;
 
 namespace Telerik.JustDecompiler.Steps
 {
@@ -87,7 +88,7 @@ namespace Telerik.JustDecompiler.Steps
         public override ICodeNode VisitCatchClause(CatchClause node)
         {
             // If we have a catch clause with filter, we need aggressive inlining (only for TernaryConditionPattern) of the filter block, because our pattern matching relies on this.
-            if (node.Filter != null && this.Language.SupportsExceptionFilters)
+            if (node.Filter != null && this.context.Language.SupportsExceptionFilters)
             {
                 this.isInFilter = true;
                 node.Filter = (Statement)Visit(node.Filter);
@@ -103,7 +104,8 @@ namespace Telerik.JustDecompiler.Steps
 
         private VariableInliningPattern GetVariableInliningPattern(CodePatternsContext patternsContext)
         {
-            return isAggressive ? new VariableInliningPatternAggressive(patternsContext, context.MethodContext) : new VariableInliningPattern(patternsContext, context.MethodContext);
+            return isAggressive ? new VariableInliningPatternAggressive(patternsContext, context.MethodContext, this.context.Language.VariablesToNotInlineFinder) :
+                                  new VariableInliningPattern(patternsContext, context.MethodContext, this.context.Language.VariablesToNotInlineFinder);
         }
 
         private TernaryConditionPattern GetTernaryPattern(CodePatternsContext patternsContext)

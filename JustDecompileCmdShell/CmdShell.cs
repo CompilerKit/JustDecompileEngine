@@ -12,12 +12,14 @@ using Mono.Cecil;
 using Mono.Cecil.AssemblyResolver;
 using JustDecompile.EngineInfrastructure;
 using Telerik.JustDecompiler.Languages.VisualBasic;
+using System.Collections.Generic;
+using JustDecompile.Tools.MSBuildProjectBuilder.NetCore;
 
 namespace JustDecompileCmdShell
 {
     public class CmdShell : ExceptionThrownNotifier, IExceptionThrownNotifier
     {
-        private static readonly string description = "[--- Copyright (c) 2011-2016 Telerik AD. All rights reserved. ---]";
+        private static readonly string description = "[--- Copyright (c) 2011-2018 Telerik EAD. All rights reserved. ---]";
         private static uint count = 0;
 
         public event EventHandler<AssemblyDefinition> ProjectGenerationStarted;
@@ -104,6 +106,12 @@ namespace JustDecompileCmdShell
                         }
                     }
 
+                    if (!projectInfo.DecompileDangerousResources)
+                    {
+                        CommandLineManager.WriteLineColor(ConsoleColor.Yellow, "By default JustDecompile's command-line project generataion does not decompile dangerous resources, which may contain malicious code. Decompilation of such resources will result in execution of that malicious code. Check the help [/?] for information how to turn on decompilation of such resources. WARNING: Use with trusted assemblies only.");
+                        CommandLineManager.WriteLine();
+                    }
+                    
                     CommandLineManager.WriteLineColor(ConsoleColor.White, "Project Creation:");
                     CommandLineManager.WriteLineColor(ConsoleColor.White, "============================");
 
@@ -137,7 +145,7 @@ namespace JustDecompileCmdShell
         protected ProjectGenerationSettings GetSettings(GeneratorProjectInfo projectInfo)
         {
             return ProjectGenerationSettingsProvider.GetProjectGenerationSettings(projectInfo.Target, NoCacheAssemblyInfoService.Instance,
-                new ConsoleFrameworkResolver(projectInfo.FrameworkVersion), projectInfo.VisualStudioVersion, projectInfo.Language);
+                new ConsoleFrameworkResolver(projectInfo.FrameworkVersion), projectInfo.VisualStudioVersion, projectInfo.Language, TargetPlatformResolver.Instance);
         }
 
         protected TimeSpan RunInternal(AssemblyDefinition assembly, GeneratorProjectInfo projectInfo, ProjectGenerationSettings settings)
@@ -150,9 +158,13 @@ namespace JustDecompileCmdShell
             preferences.WriteFullNames = false;
             preferences.WriteDocumentation = projectInfo.AddDocumentation;
             preferences.RenameInvalidMembers = projectInfo.RenameInvalidMembers;
+            preferences.WriteLargeNumbersInHex = projectInfo.WriteLargeNumbersInHex;
+            preferences.DecompileDangerousResources = projectInfo.DecompileDangerousResources;
 
             IFrameworkResolver frameworkResolver = new ConsoleFrameworkResolver(projectInfo.FrameworkVersion);
-            MSBuildProjectBuilder projectBuilder = GetProjectBuilder(assembly, projectInfo, settings, projectInfo.Language, projFilePath, preferences, frameworkResolver);
+			ITargetPlatformResolver targetPlatformResolver = TargetPlatformResolver.Instance;
+
+			BaseProjectBuilder projectBuilder = GetProjectBuilder(assembly, projectInfo, settings, projectInfo.Language, projFilePath, preferences, frameworkResolver, targetPlatformResolver);
             AttachProjectBuilderEventHandlers(projectBuilder);
 
             //As per https://github.com/telerik/JustDecompileEngine/pull/2
@@ -170,20 +182,28 @@ namespace JustDecompileCmdShell
             Directory.CreateDirectory(projectInfo.Out);
         }
 
-        private MSBuildProjectBuilder GetProjectBuilder(AssemblyDefinition assembly, GeneratorProjectInfo projectInfo, ProjectGenerationSettings settings, ILanguage language, string projFilePath, DecompilationPreferences preferences, IFrameworkResolver frameworkResolver)
+        private BaseProjectBuilder GetProjectBuilder(AssemblyDefinition assembly, GeneratorProjectInfo projectInfo, ProjectGenerationSettings settings, ILanguage language, string projFilePath, DecompilationPreferences preferences, IFrameworkResolver frameworkResolver, ITargetPlatformResolver targetPlatformResolver)
         {
-            TargetPlatform targetPlatform = assembly.MainModule.AssemblyResolver.GetTargetPlatform(assembly.MainModule.FilePath);
-            if (targetPlatform == TargetPlatform.WinRT)
+            TargetPlatform targetPlatform = targetPlatformResolver.GetTargetPlatform(assembly.MainModule.FilePath, assembly.MainModule);
+			BaseProjectBuilder projectBuilder = null;
+
+			if (targetPlatform == TargetPlatform.NetCore)
+			{
+				projectBuilder = new NetCoreProjectBuilder(projectInfo.Target, projFilePath, language, preferences, null, NoCacheAssemblyInfoService.Instance, projectInfo.VisualStudioVersion, settings);
+			}
+			else if (targetPlatform == TargetPlatform.WinRT)
             {
-                return new WinRTProjectBuilder(projectInfo.Target, projFilePath, language, preferences, null, NoCacheAssemblyInfoService.Instance, projectInfo.VisualStudioVersion, settings);
+				projectBuilder = new WinRTProjectBuilder(projectInfo.Target, projFilePath, language, preferences, null, NoCacheAssemblyInfoService.Instance, projectInfo.VisualStudioVersion, settings);
             }
             else
             {
-                return new MSBuildProjectBuilder(projectInfo.Target, projFilePath, language, frameworkResolver, preferences, null, NoCacheAssemblyInfoService.Instance, projectInfo.VisualStudioVersion, settings);
+				projectBuilder = new MSBuildProjectBuilder(projectInfo.Target, projFilePath, language, frameworkResolver, preferences, null, NoCacheAssemblyInfoService.Instance, projectInfo.VisualStudioVersion, settings);
             }
+
+			return projectBuilder;
         }
 
-        protected virtual void AttachProjectBuilderEventHandlers(MSBuildProjectBuilder projectBuilder)
+        protected virtual void AttachProjectBuilderEventHandlers(BaseProjectBuilder projectBuilder)
         {
             projectBuilder.ProjectFileCreated += OnProjectFileCreated;
             projectBuilder.ProjectGenerationFailure += OnProjectGenerationFailure;
@@ -191,7 +211,7 @@ namespace JustDecompileCmdShell
             projectBuilder.ExceptionThrown += OnExceptionThrown;
         }
         
-        protected virtual void DetachProjectBuilderEventHandlers(MSBuildProjectBuilder projectBuilder)
+        protected virtual void DetachProjectBuilderEventHandlers(BaseProjectBuilder projectBuilder)
         {
             projectBuilder.ProjectFileCreated -= OnProjectFileCreated;
             projectBuilder.ProjectGenerationFailure -= OnProjectGenerationFailure;

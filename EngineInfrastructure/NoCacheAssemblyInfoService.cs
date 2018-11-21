@@ -1,17 +1,18 @@
-﻿using JustDecompile.EngineInfrastructure.AssemblyLocators;
+﻿using System;
+using System.IO;
+using System.Linq;
+using System.Runtime.Versioning;
+using Telerik.JustDecompiler.External.Interfaces;
 using Mono.Cecil;
 using Mono.Cecil.AssemblyResolver;
-using System;
-using System.IO;
-using System.Runtime.Versioning;
-using Telerik.JustDecompiler.External;
-using Telerik.JustDecompiler.External.Interfaces;
+using JustDecompile.EngineInfrastructure.AssemblyLocators;
 
 namespace JustDecompile.EngineInfrastructure
 {
     public class NoCacheAssemblyInfoService : IAssemblyInfoService
     {
         private static NoCacheAssemblyInfoService instance = null;
+        protected static IAssemblyFrameworkResolver assemblyFrameworkResolver = AssemblyFrameworkResolver.Instance;
 
         protected NoCacheAssemblyInfoService()
         {
@@ -51,29 +52,13 @@ namespace JustDecompile.EngineInfrastructure
 
         protected FrameworkVersion GetFrameworkVersionForModule(ModuleDefinition module, IFrameworkResolver frameworkResolver)
         {
-            //TODO: handle Silverlight/WinPhone projects
-            TargetPlatform platform = module.AssemblyResolver.GetTargetPlatform(module.FilePath);
-            switch (platform)
+            if (assemblyFrameworkResolver.IsCLR4Assembly(module))
             {
-                case TargetPlatform.CLR_1:
-                    return FrameworkVersion.v1_1;
-                case TargetPlatform.CLR_2:
-                    return FrameworkVersion.v2_0;
-                case TargetPlatform.CLR_2_3:
-                case TargetPlatform.CLR_3_5:
-                    return FrameworkVersion.v3_5;
-                case TargetPlatform.CLR_4:
-                    return GetFramework4Version(module, frameworkResolver);
-                case TargetPlatform.WinRT:
-                    return GetWinRTFrameworkVersion(module);
-                case TargetPlatform.Silverlight:
-                    return FrameworkVersion.Silverlight;
-                case TargetPlatform.WindowsCE:
-                    return FrameworkVersion.WindowsCE;
-                case TargetPlatform.WindowsPhone:
-                    return FrameworkVersion.WindowsPhone;
-                default:
-                    return FrameworkVersion.Unknown;
+                return this.GetFramework4Version(module, frameworkResolver);
+            }
+            else
+            {
+                return assemblyFrameworkResolver.GetFrameworkVersionForModule(module);
             }
         }
 
@@ -94,7 +79,7 @@ namespace JustDecompile.EngineInfrastructure
             if (module.IsMain)
             {
                 FrameworkName frameworkName;
-                if (TryGetTargetFrameworkName(module.Assembly, out frameworkName) &&
+                if (TryGetTargetFrameworkName(module.Assembly.TargetFrameworkAttributeValue, out frameworkName) &&
                     TryParseFramework4Name(frameworkName.Version.ToString(), out frameworkVersion))
                 {
                     return true;
@@ -148,6 +133,15 @@ namespace JustDecompile.EngineInfrastructure
                 case "4.6.1":
                     frameworkVersion = FrameworkVersion.v4_6_1;
                     break;
+                case "4.6.2":
+                    frameworkVersion = FrameworkVersion.v4_6_2;
+                    break;
+                case "4.7":
+                    frameworkVersion = FrameworkVersion.v4_7;
+                    break;
+				case "4.7.1":
+					frameworkVersion = FrameworkVersion.v4_7_1;
+					break;
                 default:
                     return false;
             }
@@ -228,14 +222,14 @@ namespace JustDecompile.EngineInfrastructure
             return true;
         }
 
-        private bool TryGetTargetFrameworkName(AssemblyDefinition assembly, out FrameworkName frameworkName)
+        private bool TryGetTargetFrameworkName(string targetFrameworkAttributeValue, out FrameworkName frameworkName)
         {
             frameworkName = null;
-            if (assembly.TargetFrameworkAttributeValue != null)
+            if (targetFrameworkAttributeValue != null)
             {
                 try
                 {
-                    frameworkName = new FrameworkName(assembly.TargetFrameworkAttributeValue);
+                    frameworkName = new FrameworkName(targetFrameworkAttributeValue);
                 }
                 catch (ArgumentException)
                 {
@@ -275,6 +269,14 @@ namespace JustDecompile.EngineInfrastructure
                 {
                     assemblyTypes |= AssemblyTypes.WinForms;
                 }
+				else if (reference.Name.StartsWith("Microsoft.AspNetCore"))
+				{
+					assemblyTypes |= AssemblyTypes.AspNetCore;
+				}
+				else if (reference.Name == "System.Runtime" && reference.Version == new Version(4, 2, 0, 0))
+				{
+					assemblyTypes |= AssemblyTypes.NetCore;
+				}
                 else if (reference.Name == "System.Web.Mvc")
                 {
                     assemblyTypes |= AssemblyTypes.MVC;
@@ -299,34 +301,5 @@ namespace JustDecompile.EngineInfrastructure
 
             return assemblyTypes;
         }
-
-        private FrameworkVersion GetWinRTFrameworkVersion(ModuleDefinition module)
-        {
-            FrameworkName frameworkName;
-            if (this.TryGetTargetFrameworkName(module.Assembly, out frameworkName))
-            {
-                if (frameworkName.Identifier == ".NETPortable" && frameworkName.Version == new Version(4, 6))
-                {
-                    return FrameworkVersion.NetPortableV4_6;
-                }
-                else if (frameworkName.Identifier == ".NETCore")
-                {
-                    if (frameworkName.Version == new Version(4, 5))
-                    {
-                        return FrameworkVersion.NetCoreV4_5;
-                    }
-                    else if (frameworkName.Version == new Version(4, 5, 1))
-                    {
-                        return FrameworkVersion.NetCoreV4_5_1;
-                    }
-                    else if (frameworkName.Version == new Version(5, 0))
-                    {
-                        return FrameworkVersion.NetCoreV5_0;
-                    }
-                }
-            }
-
-            return FrameworkVersion.WinRT;
-        }
-    }
+	}
 }

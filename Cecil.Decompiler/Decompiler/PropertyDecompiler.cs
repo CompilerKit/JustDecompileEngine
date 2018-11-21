@@ -340,11 +340,11 @@ namespace Telerik.JustDecompiler.Decompiler
             try
             {
                 DecompilationContext decompilationContext =
-                    new DecompilationContext(new MethodSpecificContext(body), this.typeContext ?? new TypeSpecificContext(body.Method.DeclaringType));
+                    new DecompilationContext(new MethodSpecificContext(body), this.typeContext ?? new TypeSpecificContext(body.Method.DeclaringType), this.language);
 
-                DecompilationPipeline pipeline = this.language.CreatePipeline(body.Method, decompilationContext);
+                DecompilationPipeline pipeline = this.language.CreatePipeline(decompilationContext);
 
-                methodContext = pipeline.Run(body).MethodContext;
+                methodContext = pipeline.Run(body, this.language).MethodContext;
 
                 block = pipeline.Body;
             }
@@ -385,7 +385,7 @@ namespace Telerik.JustDecompiler.Decompiler
             {
                 DecompilationPipeline pipeline;
                 DecompilationContext decompilationContext =
-                    new DecompilationContext(new MethodSpecificContext(body), this.typeContext ?? new TypeSpecificContext(body.Method.DeclaringType));
+                    new DecompilationContext(new MethodSpecificContext(body), this.typeContext ?? new TypeSpecificContext(body.Method.DeclaringType), this.language);
                 if (!needDecompiledMember)
                 {
                     decompilationContext.MethodContext.EnableEventAnalysis = false;
@@ -393,7 +393,7 @@ namespace Telerik.JustDecompiler.Decompiler
 
                 pipeline = new DecompilationPipeline(BaseLanguage.IntermediateRepresenationPipeline.Steps, decompilationContext);
 
-                context = pipeline.Run(body);
+                context = pipeline.Run(body, this.language);
 
                 block = pipeline.Body;
             }
@@ -417,7 +417,7 @@ namespace Telerik.JustDecompiler.Decompiler
             BlockStatement fullyDecompiledBlock;
             try
             {
-                BlockDecompilationPipeline pipeline = this.language.CreatePropertyPipeline(context.MethodContext.Method, context);
+                BlockDecompilationPipeline pipeline = this.language.CreatePropertyPipeline(context);
 
                 methodContext = pipeline.Run(context.MethodContext.Method.Body, block, this.language).MethodContext;
 

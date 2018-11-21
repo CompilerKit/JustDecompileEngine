@@ -11,6 +11,8 @@ using Telerik.JustDecompiler.Decompiler.LogicFlow;
 using Telerik.JustDecompiler.Steps;
 using Telerik.JustDecompiler.Decompiler.GotoElimination;
 using System.Text.RegularExpressions;
+using Telerik.JustDecompiler.Decompiler.Inlining;
+using Telerik.JustDecompiler.Ast;
 
 namespace Telerik.JustDecompiler.Languages
 {
@@ -38,38 +40,19 @@ namespace Telerik.JustDecompiler.Languages
         {
             get
             {
-				return new DecompilationPipeline(new RemoveUnreachableBlocksStep(),
-												 new StackUsageAnalysis(),
-												 new ExpressionDecompilerStep(),
-												 new ManagedPointersRemovalStep(),
-												 new VariableAssignmentAnalysisStep(),
-												 new LogicalFlowBuilderStep(),
-												 new FollowNodeLoopCleanUpStep(),
-												 new StatementDecompilerStep(),
-												 new MapUnconditionalBranchesStep());
-			}
-        }
-
-        private bool writeLargeNumbersInHex = true;
-
-        public bool IsStopped
-        {
-            get;
-            private set;
-        }
-
-        public bool WriteLargeNumbersInHex
-        {
-            get
-            {
-                return writeLargeNumbersInHex;
-            }
-            set
-            {
-                writeLargeNumbersInHex = value;
+                return new DecompilationPipeline(new RemoveUnreachableBlocksStep(),
+                                                 new StackUsageAnalysis(),
+                                                 new ExpressionDecompilerStep(),
+                                                 new RemoveCompilerOptimizationsStep(),
+                                                 new ManagedPointersRemovalStep(),
+                                                 new VariableAssignmentAnalysisStep(),
+                                                 new LogicalFlowBuilderStep(),
+                                                 new FollowNodeLoopCleanUpStep(),
+                                                 new StatementDecompilerStep(),
+                                                 new MapUnconditionalBranchesStep());
             }
         }
-
+        
         public abstract string Name { get; }
 
         public abstract int Version { get; }
@@ -143,61 +126,56 @@ namespace Telerik.JustDecompiler.Languages
             return firstCharacter.IsValidIdentifierFirstCharacter();
         }
 
-        public abstract ILanguageWriter GetWriter(IFormatter formatter, IExceptionFormatter exceptionFormatter, bool writeExceptionsAsComments);
+        public abstract ILanguageWriter GetWriter(IFormatter formatter, IExceptionFormatter exceptionFormatter, IWriterSettings settings);
 
-        public abstract IAssemblyAttributeWriter GetAssemblyAttributeWriter(IFormatter formatter, IExceptionFormatter exceptionFormatter, bool writeExceptionsAsComments);
+        public abstract IAssemblyAttributeWriter GetAssemblyAttributeWriter(IFormatter formatter, IExceptionFormatter exceptionFormatter, IWriterSettings settings);
 
-        public virtual DecompilationPipeline CreatePipeline(MethodDefinition method)
+        public virtual DecompilationPipeline CreatePipeline()
         {
             DecompilationPipeline result = new DecompilationPipeline();
-            result.AddSteps(IntermediateRepresenationPipeline.Steps);
-            result.AddSteps(LanguageDecompilationSteps(method, false));
+            result.AddSteps(BaseLanguage.IntermediateRepresenationPipeline.Steps);
+            result.AddSteps(LanguageDecompilationSteps(false));
             return result;
         }
 
-        public virtual DecompilationPipeline CreatePipeline(MethodDefinition method, DecompilationContext context)
+        public virtual DecompilationPipeline CreatePipeline(DecompilationContext context)
         {
-            return CreatePipelineInternal(method, context, false);
+            return CreatePipelineInternal(context, false);
         }
 
-        public virtual DecompilationPipeline CreateLambdaPipeline(MethodDefinition method, DecompilationContext context)
+        public virtual DecompilationPipeline CreateLambdaPipeline(DecompilationContext context)
         {
-            return CreatePipelineInternal(method, context, true);
+            return CreatePipelineInternal(context, true);
         }
 
-        public virtual BlockDecompilationPipeline CreateFilterMethodPipeline(MethodDefinition method, DecompilationContext context)
+        public virtual BlockDecompilationPipeline CreateFilterMethodPipeline(DecompilationContext context)
         {
-            return new BlockDecompilationPipeline(LanguageFilterMethodDecompilationSteps(method, false), context);
+            return new BlockDecompilationPipeline(LanguageFilterMethodDecompilationSteps(false), context);
         }
 
         // This pipeline is used by the PropertyDecompiler to finish the decompilation of properties, which are partially decompiled
         // using the steps from the IntermediateRepresenationPipeline.
-        public virtual BlockDecompilationPipeline CreatePropertyPipeline(MethodDefinition method, DecompilationContext context)
+        public virtual BlockDecompilationPipeline CreatePropertyPipeline(DecompilationContext context)
         {
-            BlockDecompilationPipeline result = new BlockDecompilationPipeline(LanguageDecompilationSteps(method, false), context);
+            BlockDecompilationPipeline result = new BlockDecompilationPipeline(LanguageDecompilationSteps(false), context);
             return result;
         }
 
-        private DecompilationPipeline CreatePipelineInternal(MethodDefinition method, DecompilationContext context, bool inlineAggressively)
+        private DecompilationPipeline CreatePipelineInternal(DecompilationContext context, bool inlineAggressively)
         {
-            DecompilationPipeline result = new DecompilationPipeline(IntermediateRepresenationPipeline.Steps, context);
-            result.AddSteps(LanguageDecompilationSteps(method, inlineAggressively));
+            DecompilationPipeline result = new DecompilationPipeline(BaseLanguage.IntermediateRepresenationPipeline.Steps, context);
+            result.AddSteps(LanguageDecompilationSteps(inlineAggressively));
             return result;
         }
 
-        internal virtual IDecompilationStep[] LanguageDecompilationSteps(MethodDefinition method, bool inlineAggressively)
+        internal virtual IDecompilationStep[] LanguageDecompilationSteps(bool inlineAggressively)
         {
             return new IDecompilationStep[0];
         }
 
-        protected virtual IDecompilationStep[] LanguageFilterMethodDecompilationSteps(MethodDefinition method, bool inlineAggressively)
+        protected virtual IDecompilationStep[] LanguageFilterMethodDecompilationSteps(bool inlineAggressively)
         {
             return new IDecompilationStep[0];
-        }
-
-        public void StopPipeline()
-        {
-            IsStopped = true;
         }
 
         public virtual bool IsLanguageKeyword(string word)
@@ -280,7 +258,9 @@ namespace Telerik.JustDecompiler.Languages
             return string.Equals(this.Name, other.Name, StringComparison.OrdinalIgnoreCase);
         }
 
-		public virtual bool HasOutKeyword
+        public abstract bool IsValidLineStarter(CodeNodeType nodeType);
+
+        public virtual bool HasOutKeyword
 		{
 			get
 			{
@@ -293,5 +273,11 @@ namespace Telerik.JustDecompiler.Languages
         public abstract bool SupportsInlineInitializationOfAutoProperties { get; }
 
         public abstract bool SupportsExceptionFilters { get; }
+
+        public abstract IVariablesToNotInlineFinder VariablesToNotInlineFinder { get; }
+
+        public abstract bool HasDelegateSpecificSyntax { get; }
+
+		public abstract HashSet<string> AttributesToHide { get; }
     }
 }

@@ -37,8 +37,23 @@ namespace Telerik.JustDecompiler.Languages
                 }
             }
 
-            securityAttributeToDeclaration = new Dictionary<SecurityAttribute,SecurityDeclaration>();
-            
+            WriteMemberAttributesInternal(member, isWinRTImplementation);
+
+            if (ignored != null)
+            {
+                foreach (string ignoredAttributeType in ignored)
+                {
+                    attributesNotToShow.Remove(ignoredAttributeType);
+                }
+            }
+        }
+
+        public abstract void WriteMemberReturnValueAttributes(IMemberDefinition member);
+        
+        protected virtual void WriteMemberAttributesInternal(IMemberDefinition member, bool isWinRTImplementation)
+        {
+            securityAttributeToDeclaration = new Dictionary<SecurityAttribute, SecurityDeclaration>();
+
             List<ICustomAttribute> attributes = CollectSecurityAttributes(member);
 
             foreach (CustomAttribute attribute in member.CustomAttributes)
@@ -51,26 +66,48 @@ namespace Telerik.JustDecompiler.Languages
             }
             attributes.AddRange(WritePropertiesAsAttributes(member));
 
+            SortAttributes(attributes);
+            WriteAttributesInternal(member, attributes, false, false);
+        }
+
+        private void SortAttributes(List<ICustomAttribute> attributes)
+        {
             attributes.Sort((x, y) => { return CompareAttributes(x, y); });
+        }
+
+        protected void WriteAttributesInternal(IMemberDefinition member, List<ICustomAttribute> attributes, bool skipTheNewLine, bool areReturnValueAttributes)
+        {
             foreach (ICustomAttribute attribute in attributes)
             {
                 if (attribute is CustomAttribute)
                 {
-                    WriteAttribute(attribute as CustomAttribute);
+                    WriteAttribute(attribute as CustomAttribute, skipTheNewLine, areReturnValueAttributes);
                 }
                 else if (attribute is SecurityAttribute)
                 {
                     bool b;
-					WriteSecurityAttribute(GetModuleDefinition(member), false, attribute as SecurityAttribute, securityAttributeToDeclaration[attribute as SecurityAttribute], out b);
+                    WriteSecurityAttribute(GetModuleDefinition(member), false, attribute as SecurityAttribute, securityAttributeToDeclaration[attribute as SecurityAttribute], out b, skipTheNewLine, areReturnValueAttributes);
                 }
-            }
-            if (ignored!= null)
-            {
-                foreach (string ignoredAttributeType in ignored)
+
+                if (skipTheNewLine && areReturnValueAttributes)
                 {
-                    attributesNotToShow.Remove(ignoredAttributeType);
+                    this.genericWriter.WriteSpace();
                 }
             }
+        }
+
+        protected virtual List<ICustomAttribute> GetSortedReturnValueAttributes(IMethodSignature member)
+        {
+            List<ICustomAttribute> result = new List<ICustomAttribute>();
+            
+            if (member != null && member.MethodReturnType.HasCustomAttributes)
+            {
+                result.AddRange(member.MethodReturnType.CustomAttributes);
+            }
+
+            SortAttributes(result);
+
+            return result;
         }
 
         private bool IsWinRTActivatableAttribute(CustomAttribute attribute)
@@ -343,6 +380,13 @@ namespace Telerik.JustDecompiler.Languages
             {
                 attributes.Add(AttributesUtilities.GetMethodDllImportAttribute(method));
             }
+
+            if (method.HasImplAttributes &&
+                AttributesUtilities.ShouldWriteMethodImplAttribute(method))
+            {
+                attributes.Add(AttributesUtilities.GetMethodImplAttribute(method));
+            }
+
             return attributes;
         }
 
@@ -385,7 +429,7 @@ namespace Telerik.JustDecompiler.Languages
 			}
 		}
 
-        private bool WriteSecurityAttribute(ModuleDefinition module, bool isAssemblyDeclaration, SecurityAttribute attribute, SecurityDeclaration securityDeclaration, out bool wroteArgument)
+        private bool WriteSecurityAttribute(ModuleDefinition module, bool isAssemblyDeclaration, SecurityAttribute attribute, SecurityDeclaration securityDeclaration, out bool wroteArgument, bool skipTheNewLine = false, bool isReturnValueAttribute = false)
         {
             genericWriter.WriteToken(OpeningBracket);
             if (isAssemblyDeclaration)
@@ -393,6 +437,10 @@ namespace Telerik.JustDecompiler.Languages
                 genericWriter.WriteKeyword(genericWriter.KeyWordWriter.Assembly);
                 genericWriter.Write(":");
                 genericWriter.WriteSpace();
+            }
+            else if (isReturnValueAttribute)
+            {
+                this.WriteReturnValueAttributeKeyword();
             }
             string attributeName = attribute.AttributeType.Name.EndsWith("Attribute") ? attribute.AttributeType.Name.Remove(attribute.AttributeType.Name.LastIndexOf("Attribute")) : attribute.AttributeType.Name;
 			genericWriter.WriteNamespaceIfTypeInCollision(attribute.AttributeType);
@@ -444,7 +492,10 @@ namespace Telerik.JustDecompiler.Languages
 
             genericWriter.WriteToken(")");
             genericWriter.WriteToken(ClosingBracket);
-            genericWriter.WriteLine();
+            if (!skipTheNewLine)
+            {
+                genericWriter.WriteLine();
+            }
             return wroteArgument;
         }
 
@@ -531,7 +582,7 @@ namespace Telerik.JustDecompiler.Languages
             genericWriter.WriteLine();
         }
 
-        protected void WriteAttribute(CustomAttribute attribute, bool skipNewLine = false)
+        protected void WriteAttribute(CustomAttribute attribute, bool skipNewLine = false, bool isReturnValueAtrribute = false)
         {
             if (attributesNotToShow.Contains(attribute.AttributeType.FullName))
             {
@@ -541,6 +592,11 @@ namespace Telerik.JustDecompiler.Languages
             bool resolvingProblem = false;
             attribute.Resolve();
             genericWriter.WriteToken(OpeningBracket);
+
+            if (isReturnValueAtrribute)
+            {
+                WriteReturnValueAttributeKeyword();
+            }
 
             resolvingProblem = WriteAttributeSignature(attribute, resolvingProblem);
 
@@ -558,6 +614,8 @@ namespace Telerik.JustDecompiler.Languages
                 genericWriter.WriteLine();
             }
         }
+
+        protected abstract void WriteReturnValueAttributeKeyword();
 
         private bool WriteAttributeSignature(CustomAttribute attribute, bool resolvingProblem)
         {
@@ -765,7 +823,7 @@ namespace Telerik.JustDecompiler.Languages
 
         private string GetElementTypeName(CustomAttributeArgument argument)
         {
-            return genericWriter.ToTypeString((argument.Type as ArrayType).ElementType);
+            return genericWriter.ToEscapedTypeString((argument.Type as ArrayType).ElementType);
         }
 
         protected abstract string OpeningBracket { get; }

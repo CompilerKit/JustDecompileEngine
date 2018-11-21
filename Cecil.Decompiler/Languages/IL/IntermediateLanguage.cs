@@ -27,6 +27,9 @@ using System;
 using Mono.Cecil;
 using Telerik.JustDecompiler.Decompiler;
 using System.Collections.Generic;
+using Telerik.JustDecompiler.Steps;
+using Telerik.JustDecompiler.Decompiler.Inlining;
+using Telerik.JustDecompiler.Ast;
 
 namespace Telerik.JustDecompiler.Languages.IL
 {
@@ -70,43 +73,37 @@ namespace Telerik.JustDecompiler.Languages.IL
 			get { return "///"; }
 		}
 
-        public bool ShouldGenerateBlocks
+		public override ILanguageWriter GetWriter(IFormatter formatter, IExceptionFormatter exceptionFormatter, IWriterSettings settings)
         {
-            get;
-            set;
+            return new IntermediateLanguageWriter(this, formatter, exceptionFormatter, settings);
         }
 
-		public override ILanguageWriter GetWriter(IFormatter formatter, IExceptionFormatter exceptionFormatter, bool writeExceptionsAsComments)
-        {
-            return new IntermediateLanguageWriter(this, formatter, exceptionFormatter, writeExceptionsAsComments, ShouldGenerateBlocks);
-        }
-
-		public override IAssemblyAttributeWriter GetAssemblyAttributeWriter(IFormatter formatter, IExceptionFormatter exceptionFormatter, bool writeExceptionsAsComments)
+		public override IAssemblyAttributeWriter GetAssemblyAttributeWriter(IFormatter formatter, IExceptionFormatter exceptionFormatter, IWriterSettings settings)
 		{
-			return new IntermediateLanguageAssemblyAttributeWriter(this, formatter, exceptionFormatter, writeExceptionsAsComments, ShouldGenerateBlocks);
+			return new IntermediateLanguageAssemblyAttributeWriter(this, formatter, exceptionFormatter, settings);
 		}
 
-        public override DecompilationPipeline CreatePipeline(MethodDefinition method)
+        public override DecompilationPipeline CreatePipeline()
         {
             return new DecompilationPipeline();
         }
 
-        public override DecompilationPipeline CreatePipeline(MethodDefinition method, DecompilationContext context)
+        public override DecompilationPipeline CreatePipeline(DecompilationContext context)
         {
             return new DecompilationPipeline();
         }
 
-        public override DecompilationPipeline CreateLambdaPipeline(MethodDefinition method, DecompilationContext context)
+        public override DecompilationPipeline CreateLambdaPipeline(DecompilationContext context)
         {
             return new DecompilationPipeline();
         }
 
-        public override BlockDecompilationPipeline CreateFilterMethodPipeline(MethodDefinition method, DecompilationContext context)
+        public override BlockDecompilationPipeline CreateFilterMethodPipeline(DecompilationContext context)
         {
             return new BlockDecompilationPipeline();
         }
         
-        public override BlockDecompilationPipeline CreatePropertyPipeline(MethodDefinition method, DecompilationContext context)
+        public override BlockDecompilationPipeline CreatePropertyPipeline(DecompilationContext context)
         {
             return new BlockDecompilationPipeline();
         }
@@ -141,6 +138,19 @@ namespace Telerik.JustDecompiler.Languages.IL
             return false;
         }
 
+        public override bool IsValidLineStarter(CodeNodeType nodeType)
+        {
+            return false;
+        }
+
+        public override IVariablesToNotInlineFinder VariablesToNotInlineFinder
+        {
+            get
+            {
+                return new EmptyVariablesToNotInlineFinder();
+            }
+        }
+
         public override bool SupportsGetterOnlyAutoProperties
         {
             get
@@ -172,5 +182,21 @@ namespace Telerik.JustDecompiler.Languages.IL
                 return 0;
             }
         }
+
+        public override bool HasDelegateSpecificSyntax
+        {
+            get
+            {
+                return false;
+            }
+        }
+
+		public override HashSet<string> AttributesToHide
+		{
+			get
+			{
+				return new HashSet<string>();
+			}
+		}
     }
 }

@@ -136,6 +136,32 @@ namespace Telerik.JustDecompiler.Cil
 			get { return parents; }
 		}
 
+        // The AddToSuccessors and RemoveFromSuccessors are left this way, because they are used in only 1 place. They are written
+        // this way so the whole Successors-SetParent thing going on in the Successors property. This implementation is very slow
+        // O(n) on add. This should be refactored if planned to be used elsewhere. The refactoring should be changing the successors
+        // collection to some kind of list and implementing observed list which does what it needs to be done on add and remove.
+        public void AddToSuccessors(InstructionBlock toBeAdded)
+        {
+            InstructionBlock[] newSuccessors = new InstructionBlock[this.Successors.Length + 1];
+            this.Successors.CopyTo(newSuccessors, 0);
+            newSuccessors[newSuccessors.Length - 1] = toBeAdded;
+            this.Successors = newSuccessors;
+        }
+
+        public void RemoveFromSuccessors(InstructionBlock toBeRemoved)
+        {
+            InstructionBlock[] newSuccessors = new InstructionBlock[this.Successors.Length - 1];
+            for (int old = 0, @new = 0; old < this.Successors.Length; old++)
+            {
+                if (this.Successors[old] != toBeRemoved)
+                {
+                    newSuccessors[@new++] = this.Successors[old];
+                }
+            }
+
+            this.Successors = newSuccessors;
+        }
+
 		private void SetNewParent()
 		{
 			for (int i = 0; i < successors.Length; i++)

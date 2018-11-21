@@ -44,7 +44,7 @@ namespace Telerik.JustDecompiler.Languages
 	{
 		private AttributeWriter attributeWriter;
 
-		private readonly Stack<bool> shouldOmitSemicolon = new Stack<bool>();
+        private readonly Stack<bool> shouldOmitSemicolon = new Stack<bool>();
 
 		private readonly Stack<MethodReference> methodReferences = new Stack<MethodReference>();
 
@@ -78,8 +78,8 @@ namespace Telerik.JustDecompiler.Languages
 
 		public IKeyWordWriter KeyWordWriter { get; private set; }
 
-		public BaseImperativeLanguageWriter(ILanguage language, IFormatter formatter, IExceptionFormatter exceptionFormatter, bool writeExceptionsAsComments)
-			: base(language, formatter, exceptionFormatter, writeExceptionsAsComments)
+		public BaseImperativeLanguageWriter(ILanguage language, IFormatter formatter, IExceptionFormatter exceptionFormatter, IWriterSettings settings)
+			: base(language, formatter, exceptionFormatter, settings)
 		{
 			this.KeyWordWriter = CreateKeyWordWriter();
 		}
@@ -351,7 +351,7 @@ namespace Telerik.JustDecompiler.Languages
 
 		private string GetCollidingTypeName(TypeReference typeReference)
 		{
-			return typeReference.Namespace == "System" ? ToTypeString(typeReference) : typeReference.Name;
+			return typeReference.Namespace == "System" ? ToEscapedTypeString(typeReference) : typeReference.Name;
 		}
 
 		private TypeReference GetCollidingType(TypeReference typeReference)
@@ -454,7 +454,7 @@ namespace Telerik.JustDecompiler.Languages
 
 		private void WriteReference(TypeReference reference)
 		{
-			if (reference.DeclaringType != null)
+			if (reference.DeclaringType != null && !reference.IsGenericParameter)
 			{
 				TypeReference declaringType = reference.DeclaringType;
 				if (reference.IsGenericInstance)
@@ -522,9 +522,9 @@ namespace Telerik.JustDecompiler.Languages
 			}
 			else
 			{
-				typeString = ToTypeString(reference);
+                typeString = ToEscapedTypeString(reference);
 
-				if (reference.Scope.Name != "mscorlib" && reference.Scope.Name != "CommonLanguageRuntimeLibrary" && reference.Scope.Name != "System.Runtime")
+				if (!IsReferenceFromMscorlib(reference))
 				{
 					typeString = Utilities.EscapeTypeNameIfNeeded(typeString, this.Language);
 				}
@@ -581,6 +581,19 @@ namespace Telerik.JustDecompiler.Languages
 				WriteReference(typeString, reference);
 			}
 		}
+
+        /// <summary>
+        /// Gets the type string for given type reference. If the type string is a system type and it's in collision with
+        /// some keyword, it's escaped.
+        /// </summary>
+        internal abstract string ToEscapedTypeString(TypeReference reference);
+
+        protected bool IsReferenceFromMscorlib(TypeReference reference)
+        {
+            return reference.Scope.Name == "mscorlib" ||
+                   reference.Scope.Name == "CommonLanguageRuntimeLibrary" ||
+                   reference.Scope.Name == "System.Runtime";
+        }
 
 		protected void LeaveMethodInvocation()
 		{
@@ -718,7 +731,10 @@ namespace Telerik.JustDecompiler.Languages
 				WriteSpace();
 				WriteToken("=");
 				WriteSpace();
-				TypeDefinition fieldType = field.FieldType.Resolve();
+
+                int start = this.formatter.CurrentPosition;
+
+                TypeDefinition fieldType = field.FieldType.Resolve();
 				if (fieldType != null && fieldType.IsEnum)
 				{
 					LiteralExpression fieldConstant = new LiteralExpression(field.Constant.Value, field.DeclaringType.Module.TypeSystem, null);
@@ -726,9 +742,11 @@ namespace Telerik.JustDecompiler.Languages
 					Write(constant);
 				}
 				else
-				{
-					WriteLiteralInLanguageSyntax(field.Constant.Value);
+                {
+                    WriteLiteralInLanguageSyntax(field.Constant.Value);
 				}
+
+                this.currentWritingInfo.CodeMappingInfo.Add(field, new OffsetSpan(start, this.formatter.CurrentPosition));
 			}
 		}
 
@@ -783,28 +801,33 @@ namespace Telerik.JustDecompiler.Languages
 			bool isOneSideNull = IsNull(node.Left) || IsNull(node.Right);
 			string @operator = ToString(node.Operator, isOneSideNull);
 
-			if (this.Language.IsOperatorKeyword(@operator))
-			{
-				WriteKeyword(@operator);
-			}
-			else
-			{
-				Write(@operator);
-			}
+            if (this.Language.IsOperatorKeyword(@operator))
+            {
+                WriteKeyword(@operator);
+            }
+            else
+            {
+                Write(@operator);
+            }
 
-			if (node.Right.CodeNodeType == CodeNodeType.InitializerExpression)
+            if (node.Right.CodeNodeType == CodeNodeType.InitializerExpression)
 			{
 				StartInitializer(node.Right as InitializerExpression);
 			}
 			else
 			{
 				WriteSpace();
-			}
+            }
 
-			Visit(node.Right);
+            WriteRightPartOfBinaryExpression(node);
 		}
 
-		public override void VisitUnaryExpression(UnaryExpression node)
+        protected virtual void WriteRightPartOfBinaryExpression(BinaryExpression binaryExpression)
+        {
+            Visit(binaryExpression.Right);
+        }
+        
+        public override void VisitUnaryExpression(UnaryExpression node)
 		{
 			if (node.Operator == UnaryOperator.AddressDereference)
 			{
@@ -996,7 +1019,7 @@ namespace Telerik.JustDecompiler.Languages
 
 				TypeReference parameterType = parameter.ParameterType;
 
-				if (parameter is ByReferenceType)
+				if (parameterType is ByReferenceType)
 				{
 					WriteOutOrRefKeyWord(parameter);
 					WriteSpace();
@@ -1058,15 +1081,28 @@ namespace Telerik.JustDecompiler.Languages
 				if (node != null &&
 					node.CodeNodeType != CodeNodeType.EmptyStatement)
 				{
-					int beginStatement = formatter.CurrentPosition;
-					base.Visit(node);
-					int endStatement = formatter.CurrentPosition - 1;
+                    OffsetSpan span = ExecuteAndGetOffsetSpan(() => base.Visit(node));
 
 					if (node != null)
 					{
-						this.currentWritingInfo.StatementPositions.Add(node, new OffsetSpan(beginStatement, endStatement));
-					}
-				}
+						this.currentWritingInfo.CodeMappingInfo.Add(node, new OffsetSpan(span.StartOffset, span.EndOffset - 1));
+
+                        if (node is Expression)
+                        {
+                            try
+                            {
+                                foreach (Instruction instruction in (node as Expression).MappedInstructions)
+                                {
+                                    this.currentWritingInfo.CodeMappingInfo.Add(instruction, span);
+                                }
+                            }
+                            catch (ArgumentException ex)
+                            {
+                                this.OnExceptionThrown(ex);
+                            }
+                        }
+                    }
+                }
 				else
 				{
 					DoVisit(node);
@@ -1074,7 +1110,34 @@ namespace Telerik.JustDecompiler.Languages
 			}
 		}
 
-		protected void DoVisit(ICodeNode node)
+        private OffsetSpan ExecuteAndGetOffsetSpan(Action toBeExecuted)
+        {
+            int startPosition = formatter.CurrentPosition;
+
+            EventHandler<int> onFirstNonWhiteSpaceCharacter = (sender, currentPosition) =>
+            {
+                startPosition = currentPosition;
+            };
+
+            EventHandler onNewLine = (sender, args) =>
+            {
+                this.formatter.FirstNonWhiteSpaceCharacterOnLineWritten -= onFirstNonWhiteSpaceCharacter;
+            };
+
+            this.formatter.FirstNonWhiteSpaceCharacterOnLineWritten += onFirstNonWhiteSpaceCharacter;
+            this.formatter.NewLineWritten += onNewLine;
+
+            toBeExecuted();
+
+            this.formatter.FirstNonWhiteSpaceCharacterOnLineWritten -= onFirstNonWhiteSpaceCharacter;
+            this.formatter.NewLineWritten -= onNewLine;
+
+            int endPosition = formatter.CurrentPosition;
+
+            return new OffsetSpan(startPosition, endPosition);
+        }
+
+        protected void DoVisit(ICodeNode node)
 		{
 			base.Visit(node);
 		}
@@ -1094,7 +1157,16 @@ namespace Telerik.JustDecompiler.Languages
 			}
 		}
 
-		protected abstract void WriteLabel(string label);
+		protected void WriteLabel(string label)
+        {
+            if (label != "")
+            {
+                Outdent();
+                Write(label);
+                WriteToken(":");
+                Indent();
+            }
+        }
 
 		protected override void Write(EventDefinition @event)
 		{
@@ -1975,7 +2047,7 @@ namespace Telerik.JustDecompiler.Languages
 					WriteSpace();
 				}
 
-				if ((i == 0) && (KeyWordWriter.ExtensionThis != null) && method.IsExtensionMethod)
+                if ((i == 0) && (KeyWordWriter.ExtensionThis != null) && method.IsExtensionMethod)
 				{
 					WriteKeyword(KeyWordWriter.ExtensionThis);
 					WriteSpace();
@@ -2116,9 +2188,9 @@ namespace Telerik.JustDecompiler.Languages
 		}
 
 		public override void VisitArgumentReferenceExpression(ArgumentReferenceExpression node)
-		{
-			Write(GetArgumentName(node.Parameter));
-		}
+        {
+            Write(GetArgumentName(node.Parameter));
+        }
 
 		private MethodSpecificContext GetCurrentMethodContext()
 		{
@@ -2172,14 +2244,14 @@ namespace Telerik.JustDecompiler.Languages
 		}
 
 		public override void VisitVariableReferenceExpression(VariableReferenceExpression node)
-		{
-			Write(GetVariableName(node.Variable));
-		}
+        {
+            Write(GetVariableName(node.Variable));
+        }
 
 		public override void VisitLiteralExpression(LiteralExpression node)
-		{
-			WriteLiteralInLanguageSyntax(node.Value);
-		}
+        {
+            WriteLiteralInLanguageSyntax(node.Value);
+        }
 
 		public void WriteLiteralInLanguageSyntax(object value)
 		{
@@ -2204,7 +2276,7 @@ namespace Telerik.JustDecompiler.Languages
 					return;
 				case TypeCode.Int16:
 					short shortValue = (short)value;
-					if ((shortValue >= 255) && Language.WriteLargeNumbersInHex)
+					if ((shortValue >= 255) && this.Settings.WriteLargeNumbersInHex)
 					{
 						WriteLiteral(HexValuePrefix + shortValue.ToString("X").ToLowerInvariant());
 					}
@@ -2215,7 +2287,7 @@ namespace Telerik.JustDecompiler.Languages
 					return;
 				case TypeCode.Int32:
 					int intValue = (int)value;
-					if ((intValue >= 255) && Language.WriteLargeNumbersInHex)
+					if ((intValue >= 255) && this.Settings.WriteLargeNumbersInHex)
 					{
 						WriteLiteral(HexValuePrefix + intValue.ToString("X").ToLowerInvariant());
 					}
@@ -2226,7 +2298,7 @@ namespace Telerik.JustDecompiler.Languages
 					return;
 				case TypeCode.UInt16:
 					ushort ushortValue = (ushort)value;
-					if ((ushortValue >= 255) && Language.WriteLargeNumbersInHex)
+					if ((ushortValue >= 255) && this.Settings.WriteLargeNumbersInHex)
 					{
 						WriteLiteral(HexValuePrefix + ushortValue.ToString("X").ToLowerInvariant());
 					}
@@ -2237,7 +2309,7 @@ namespace Telerik.JustDecompiler.Languages
 					return;
 				case TypeCode.UInt32:
 					uint uintValue = (uint)value;
-					if ((uintValue >= 255) && Language.WriteLargeNumbersInHex)
+					if ((uintValue >= 255) && this.Settings.WriteLargeNumbersInHex)
 					{
 						WriteLiteral(HexValuePrefix + uintValue.ToString("X").ToLowerInvariant());
 					}
@@ -2248,7 +2320,7 @@ namespace Telerik.JustDecompiler.Languages
 					return;
 				case TypeCode.Int64:
 					long longValue = (long)value;
-					if ((longValue >= 255) && Language.WriteLargeNumbersInHex)
+					if ((longValue >= 255) && this.Settings.WriteLargeNumbersInHex)
 					{
 						WriteLiteral(HexValuePrefix + longValue.ToString("X").ToLowerInvariant() + "L");
 					}
@@ -2259,7 +2331,7 @@ namespace Telerik.JustDecompiler.Languages
 					return;
 				case TypeCode.UInt64:
 					ulong ulongValue = (ulong)value;
-					if ((ulongValue >= 255) && Language.WriteLargeNumbersInHex)
+					if ((ulongValue >= 255) && this.Settings.WriteLargeNumbersInHex)
 					{
 						WriteLiteral(HexValuePrefix + ulongValue.ToString("X").ToLowerInvariant() + "L");
 					}
@@ -2539,7 +2611,7 @@ namespace Telerik.JustDecompiler.Languages
 		{
 		}
 
-		private void WriteMethodTarget(Expression expression)
+		protected void WriteMethodTarget(Expression expression)
 		{
 			bool isComplexTarget = IsComplexTarget(expression);
 
@@ -2560,79 +2632,74 @@ namespace Telerik.JustDecompiler.Languages
 
 		public override void VisitMethodInvocationExpression(MethodInvocationExpression node)
 		{
-			bool isExtentionMethod = false;
+            bool isExtentionMethod = false;
 
-			if (node.MethodExpression.CodeNodeType == CodeNodeType.MethodReferenceExpression)
-			{
-				MethodReferenceExpression methodReference = node.MethodExpression;
+            if (node.MethodExpression.CodeNodeType == CodeNodeType.MethodReferenceExpression)
+            {
+                MethodReferenceExpression methodReference = node.MethodExpression;
 
-				MethodReference method = methodReference.Method;
+                MethodReference method = methodReference.Method;
 
-				if (method != null)
-				{
-					// performance : must be static and do not use method.Resolve that resolves the whole graph.
-					if (!method.HasThis && methodReference.MethodDefinition != null)
-					{
-						isExtentionMethod = methodReference.MethodDefinition.IsExtensionMethod;
-					}
-				}
-			}
+                if (method != null)
+                {
+                    // performance : must be static and do not use method.Resolve that resolves the whole graph.
+                    if (!method.HasThis && methodReference.MethodDefinition != null)
+                    {
+                        isExtentionMethod = methodReference.MethodDefinition.IsExtensionMethod;
+                    }
+                }
+            }
 
-			if (isExtentionMethod)
-			{
-				// TODO: This shouldn't happen but fact is it happens. Seems like some other issue that needs fixing.
-				if (node.Arguments.Count > 0)
-				{
-					ProcessExtensionMethod(node.MethodExpression.Method);
-					WriteMethodTarget(node.Arguments[0]);
-				}
-			}
-			else
-			{
-				if (node.MethodExpression.Target != null)
-				{
-					WriteMethodTarget(node.MethodExpression.Target);
-				}
+            if (isExtentionMethod)
+            {
+                // TODO: This shouldn't happen but fact is it happens. Seems like some other issue that needs fixing.
+                if (node.Arguments.Count > 0)
+                {
+                    WriteMethodTarget(node.Arguments[0]);
+                }
+            }
+            else
+            {
+                if (node.MethodExpression.Target != null)
+                {
+                    WriteMethodTarget(node.MethodExpression.Target);
+                }
 
-				if (!node.MethodExpression.Method.HasThis)
-				{
-					if (node.MethodExpression.MethodDefinition != null && !node.MethodExpression.MethodDefinition.IsExtensionMethod || node.MethodExpression.MethodDefinition == null)
-					{
-						WriteReferenceAndNamespaceIfInCollision(node.MethodExpression.Method.DeclaringType);
-						WriteToken(".");
-					}
-				}
-			}
+                if (!node.MethodExpression.Method.HasThis)
+                {
+                    if (node.MethodExpression.MethodDefinition != null && !node.MethodExpression.MethodDefinition.IsExtensionMethod || node.MethodExpression.MethodDefinition == null)
+                    {
+                        WriteReferenceAndNamespaceIfInCollision(node.MethodExpression.Method.DeclaringType);
+                        WriteToken(".");
+                    }
+                }
+            }
 
-			WriteMethodReference(node.MethodExpression);
-			//VisitMethodReferenceExpression(node.MethodExpression);
+            WriteMethodReference(node.MethodExpression);
+            //VisitMethodReferenceExpression(node.MethodExpression);
 
-			bool indexProp = false;
+            bool indexProp = false;
 
-			WriteToken(indexProp ? IndexLeftBracket : "(");
-			if (node.MethodExpression is MethodReferenceExpression)
-			{
-				EnterMethodInvocation(node.MethodExpression.Method);
-				if (!isExtentionMethod)
-				{
-					VisitMethodParameters(node.Arguments);
-				}
-				else
-				{
-					VisitExtensionMethodParameters(node.Arguments);
-				}
-				LeaveMethodInvocation();
-			}
-			else
-			{
-				VisitMethodParameters(node.Arguments);
-			}
-			WriteToken(indexProp ? IndexRightBracket : ")");
-		}
-
-		protected virtual void ProcessExtensionMethod(MethodReference extensionMethod)
-		{
-		}
+            WriteToken(indexProp ? IndexLeftBracket : "(");
+            if (node.MethodExpression is MethodReferenceExpression)
+            {
+                EnterMethodInvocation(node.MethodExpression.Method);
+                if (!isExtentionMethod)
+                {
+                    VisitMethodParameters(node.Arguments);
+                }
+                else
+                {
+                    VisitExtensionMethodParameters(node.Arguments);
+                }
+                LeaveMethodInvocation();
+            }
+            else
+            {
+                VisitMethodParameters(node.Arguments);
+            }
+            WriteToken(indexProp ? IndexRightBracket : ")");
+        }
 
 		public override void VisitBlockExpression(BlockExpression node)
 		{
@@ -2641,7 +2708,7 @@ namespace Telerik.JustDecompiler.Languages
 			WriteToken(" }");
 		}
 
-		private void VisitExtensionMethodParameters(IList<Expression> list)
+		protected void VisitExtensionMethodParameters(IList<Expression> list)
 		{
 			VisitMethodParametersInternal(list, true);
 		}
@@ -2671,6 +2738,24 @@ namespace Telerik.JustDecompiler.Languages
 				{
 					byRef = true;
 				}
+
+                if (list[i].CodeNodeType == CodeNodeType.MethodInvocationExpression)
+                {
+                    MethodInvocationExpression invocation = list[i] as MethodInvocationExpression;
+                    if (invocation.IsByReference)
+                    {
+                        byRef = CheckIfParameterIsByRef(MethodReferences.Peek(), i);
+                    }
+                }
+
+                if (list[i].CodeNodeType == CodeNodeType.VariableReferenceExpression)
+                {
+                    VariableReferenceExpression variableReference = list[i] as VariableReferenceExpression;
+                    if (variableReference.Variable.VariableType.IsByReference)
+                    {
+                        byRef = CheckIfParameterIsByRef(MethodReferences.Peek(), i);
+                    }
+                }
 
 				if (byRef)
 				{
@@ -2703,7 +2788,12 @@ namespace Telerik.JustDecompiler.Languages
 			}
 		}
 
-		protected void VisitMethodParameters(IList<Expression> list)
+        private bool CheckIfParameterIsByRef(MethodReference methodReference, int parameterIndex)
+        {
+            return methodReference.Parameters[parameterIndex].ParameterType.IsByReference;
+        }
+
+        protected void VisitMethodParameters(IList<Expression> list)
 		{
 			VisitMethodParametersInternal(list, false);
 		}
@@ -2738,68 +2828,77 @@ namespace Telerik.JustDecompiler.Languages
 
 		public override void VisitMethodReferenceExpression(MethodReferenceExpression node)
 		{
-			if (node.Target != null)
-			{
-				WriteMethodTarget(node.Target);
-			}
-			else
-			{
-				WriteReferenceAndNamespaceIfInCollision(node.Method.DeclaringType);
-				WriteToken(".");
-			}
-
-			WriteMethodReference(node);
-		}
+            if (node.Target != null)
+            {
+                WriteMethodTarget(node.Target);
+            }
+            else
+            {
+                WriteReferenceAndNamespaceIfInCollision(node.Method.DeclaringType);
+                WriteToken(".");
+            }
+                
+            WriteMethodReference(node);
+        }
 
 		protected virtual void WriteMethodReference(MethodReferenceExpression methodReferenceExpression)
-		{
-			MethodReference methodReference = methodReferenceExpression.Method;
+        {
+            MethodReference methodReference = methodReferenceExpression.Method;
 
-			if (methodReference is GenericInstanceMethod)
-			{
-				WriteGenericInstanceMethod(methodReference as GenericInstanceMethod);
-				return;
-			}
+            if (methodReference is GenericInstanceMethod)
+            {
+                WriteGenericInstanceMethod(methodReference as GenericInstanceMethod);
+                return;
+            }
 
-			string methodName = GetMethodName(methodReference);
-			WriteReference(methodName, methodReference);
-		}
+            string methodName = GetMethodName(methodReference);
+            WriteReference(methodName, methodReference);
+        }
 
 		protected virtual void WriteGenericInstanceMethod(GenericInstanceMethod genericMethod)
 		{
-			MethodReference method = genericMethod.ElementMethod;
-			string methodName = GetMethodName(method);
-			WriteReference(methodName, method);
-
-			if (genericMethod.HasAnonymousArgument())
-			{
-				return;
-			}
-
-			WriteToken(GenericLeftBracket);
-			Mono.Collections.Generic.Collection<TypeReference> arguments = genericMethod.GenericArguments;
-			for (int i = 0; i < arguments.Count; i++)
-			{
-				if (i > 0)
-				{
-					WriteToken(",");
-					WriteSpace();
-				}
-				WriteReferenceAndNamespaceIfInCollision(arguments[i]);
-			}
-			WriteToken(GenericRightBracket);
-			return;
+            WriteGenericInstanceMethodWithArguments(genericMethod, genericMethod.GenericArguments);
 		}
+
+        protected void WriteGenericInstanceMethodWithArguments(GenericInstanceMethod genericMethod, Collection<TypeReference> genericArguments)
+        {
+            MethodReference method = genericMethod.ElementMethod;
+            string methodName = GetMethodName(method);
+            WriteReference(methodName, method);
+
+            if (genericMethod.HasAnonymousArgument())
+            {
+                return;
+            }
+
+            if (genericArguments.Count == 0)
+            {
+                return;
+            }
+
+            WriteToken(GenericLeftBracket);
+            for (int i = 0; i < genericArguments.Count; i++)
+            {
+                if (i > 0)
+                {
+                    WriteToken(",");
+                    WriteSpace();
+                }
+                WriteReferenceAndNamespaceIfInCollision(genericArguments[i]);
+            }
+            WriteToken(GenericRightBracket);
+            return;
+        }
 
 		public override void VisitThisReferenceExpression(ThisReferenceExpression node)
-		{
-			WriteKeyword(KeyWordWriter.This);
-		}
+        {
+            WriteKeyword(KeyWordWriter.This);
+        }
 
 		public override void VisitBaseReferenceExpression(BaseReferenceExpression node)
-		{
-			WriteKeyword(KeyWordWriter.Base);
-		}
+        {
+            WriteKeyword(KeyWordWriter.Base);
+        }
 
 		protected string WriteLogicalToken(BinaryOperator logical)
 		{
@@ -3075,7 +3174,7 @@ namespace Telerik.JustDecompiler.Languages
 
 		public virtual void WriteGenericReference(TypeReference type)
 		{
-			if (type.IsNested)
+			if (type.IsNested && !type.IsGenericParameter)
 			{
 				WriteGenericReference(type.DeclaringType);
 				WriteToken(".");
@@ -3094,7 +3193,7 @@ namespace Telerik.JustDecompiler.Languages
 
 			if (type.IsGenericParameter)
 			{
-				string typeString = ToTypeString(type);
+				string typeString = ToEscapedTypeString(type);
 				WriteReference(typeString, null);
 				return;
 			}
@@ -3116,7 +3215,7 @@ namespace Telerik.JustDecompiler.Languages
 			}
 			else
 			{
-				WriteReference(ToTypeString(type), type);
+				WriteReference(ToEscapedTypeString(type), type);
 			}
 		}
 
@@ -3176,8 +3275,8 @@ namespace Telerik.JustDecompiler.Languages
 			}
 
 			WriteToken(".");
-			WriteFieldName(node.Field);
-		}
+            WriteFieldName(node.Field);
+        }
 
 		protected virtual void WriteFieldName(FieldReference field)
 		{
@@ -3206,33 +3305,38 @@ namespace Telerik.JustDecompiler.Languages
 			else
 			{
 				WriteReferenceAndNamespaceIfInCollision(node.DeclaringType);
-			}
+            }
 
-			if (!node.IsIndexer)
-			{
-				WriteToken(".");
-				WritePropertyName(node.Property);
-			}
-			else
-			{
-				WriteToken(IndexLeftBracket);
-				for (int i = 0; i < node.Arguments.Count; i++)
-				{
-					Expression parameter = node.Arguments[i];
+            if (!node.IsIndexer)
+            {
+                WriteToken(".");
+                WritePropertyName(node.Property);
+            }
+            else
+            {
+                WriteIndexerArguments(node);
+            }
+        }
 
-					if (i > 0)
-					{
-						WriteToken(",");
-						WriteSpace();
-					}
+        protected void WriteIndexerArguments(PropertyReferenceExpression node)
+        {
+            WriteToken(IndexLeftBracket);
+            for (int i = 0; i < node.Arguments.Count; i++)
+            {
+                Expression parameter = node.Arguments[i];
 
-					Write(parameter);
-				}
-				WriteToken(IndexRightBracket);
-			}
-		}
+                if (i > 0)
+                {
+                    WriteToken(",");
+                    WriteSpace();
+                }
 
-		protected virtual void WritePropertyName(PropertyDefinition property)
+                Write(parameter);
+            }
+            WriteToken(IndexRightBracket);
+        }
+
+        protected virtual void WritePropertyName(PropertyDefinition property)
 		{
 			string propertyName = GetPropertyName(property);
 			WriteReference(propertyName, property);
@@ -3296,11 +3400,10 @@ namespace Telerik.JustDecompiler.Languages
 
 		public override void VisitVariableDeclarationExpression(VariableDeclarationExpression node)
 		{
-			VariableDefinition variable = node.Variable;
-			WriteTypeAndName(variable.VariableType, GetVariableName(variable));
-		}
+			WriteVariableTypeAndName(node.Variable);
+        }
 
-		public override void VisitGotoStatement(GotoStatement node)
+        public override void VisitGotoStatement(GotoStatement node)
 		{
 			WriteKeyword(KeyWordWriter.GoTo);
 			WriteSpace();
@@ -3390,17 +3493,17 @@ namespace Telerik.JustDecompiler.Languages
 		}
 
 		public override void VisitReturnExpression(ReturnExpression node)
-		{
-			WriteKeyword(KeyWordWriter.Return);
+        {
+            WriteKeyword(KeyWordWriter.Return);
 
-			if (node.Value != null)
+            if (node.Value != null)
 			{
 				WriteSpace();
-				Visit(node.Value);
-			}
+                Visit(node.Value);
+            }
 		}
 
-		public override void VisitShortFormReturnExpression(ShortFormReturnExpression node)
+        public override void VisitShortFormReturnExpression(ShortFormReturnExpression node)
 		{
 			if (node.Value != null)
 			{
@@ -3409,9 +3512,9 @@ namespace Telerik.JustDecompiler.Languages
 		}
 
 		public override void VisitThrowExpression(ThrowExpression node)
-		{
-			WriteKeyword(KeyWordWriter.Throw);
-			if (node.Expression != null)
+        {
+            WriteKeyword(KeyWordWriter.Throw);
+            if (node.Expression != null)
 			{
 				WriteSpace();
 				Visit(node.Expression);
@@ -3451,9 +3554,9 @@ namespace Telerik.JustDecompiler.Languages
 		}
 
 		public override void VisitMakeRefExpression(MakeRefExpression node)
-		{
-			WriteKeyword("__makeref");
-			WriteToken("(");
+        {
+            WriteKeyword("__makeref");
+            WriteToken("(");
 			Visit(node.Expression);
 			WriteToken(")");
 		}
@@ -3484,9 +3587,9 @@ namespace Telerik.JustDecompiler.Languages
 		{
 			WriteKeyword(KeyWordWriter.New);
 			WriteSpace();
-			WriteReferenceAndNamespaceIfInCollision(GetBaseElementType(node.ElementType));
+            WriteReferenceAndNamespaceIfInCollision(GetBaseElementType(node.ElementType));
 
-			bool isInitializerPresent = Utilities.IsInitializerPresent(node.Initializer);
+            bool isInitializerPresent = Utilities.IsInitializerPresent(node.Initializer);
 
 			WriteArrayDimensions(node.Dimensions, node.ElementType, isInitializerPresent);
 
@@ -3580,10 +3683,10 @@ namespace Telerik.JustDecompiler.Languages
 			{
 				WriteToken(")");
 			}
-
-			WriteToken(IndexLeftBracket);
-			VisitList(node.Indices);
-			WriteToken(IndexRightBracket);
+            
+            WriteToken(IndexLeftBracket);
+            VisitList(node.Indices);
+            WriteToken(IndexRightBracket);
 		}
 
 		protected virtual bool IsComplexTarget(Expression target)
@@ -3604,9 +3707,6 @@ namespace Telerik.JustDecompiler.Languages
 
 			return target.CodeNodeType == CodeNodeType.BinaryExpression ||
 				   target.CodeNodeType == CodeNodeType.UnaryExpression ||
-				   target.CodeNodeType == CodeNodeType.ConditionExpression ||
-				   target.CodeNodeType == CodeNodeType.CastExpression ||
-				   target.CodeNodeType == CodeNodeType.SafeCastExpression ||
 				   target.CodeNodeType == CodeNodeType.ArrayCreationExpression ||
 				   target.CodeNodeType == CodeNodeType.ObjectCreationExpression ||
 				   target.CodeNodeType == CodeNodeType.LambdaExpression;
@@ -3745,15 +3845,15 @@ namespace Telerik.JustDecompiler.Languages
 			WriteKeyword(KeyWordWriter.New);
 
 			WriteSpace();
-
-			if (node.Constructor != null)
-			{
-				WriteConstructorInvocation(node);
-			}
-			else
-			{
-				WriteReferenceAndNamespaceIfInCollision(node.Type);
-			}
+            
+            if (node.Constructor != null)
+            {
+                WriteConstructorInvocation(node);
+            }
+            else
+            {
+                WriteReferenceAndNamespaceIfInCollision(node.Type);
+            }
 
 			WriteToken("(");
 			EnterMethodInvocation(node.Constructor);
@@ -3823,35 +3923,35 @@ namespace Telerik.JustDecompiler.Languages
 
 		protected virtual void WriteDelegateCreation(ObjectCreationExpression node)
 		{
-			WriteKeyword(KeyWordWriter.New);
-			WriteSpace();
-			WriteReferenceAndNamespaceIfInCollision(node.ExpressionType);
-			WriteToken("(");
-			WriteDelegateArgument(node);
-			WriteToken(")");
+            WriteKeyword(KeyWordWriter.New);
+            WriteSpace();
+            WriteReferenceAndNamespaceIfInCollision(node.ExpressionType);
+            WriteToken("(");
+            WriteDelegateArgument(node);
+            WriteToken(")");
 		}
 
 		protected void WriteDelegateArgument(ObjectCreationExpression node)
 		{
-			//if (node.Arguments[1].CodeNodeType == CodeNodeType.LambdaExpression)
-			//{
-			//	VisitLambdaExpression((LambdaExpression)node.Arguments[1]);
-			//	return;
-			//}
+            //if (node.Arguments[1].CodeNodeType == CodeNodeType.LambdaExpression)
+            //{
+            //	VisitLambdaExpression((LambdaExpression)node.Arguments[1]);
+            //	return;
+            //}
 			if ((node.Arguments[0].CodeNodeType != CodeNodeType.LiteralExpression ||
 				(node.Arguments[0] as LiteralExpression).Value != null) &&
 				(node.Arguments[1] as MethodReferenceExpression) != null &&
 				(node.Arguments[1] as MethodReferenceExpression).Target == null)
-			{
-				Write(node.Arguments[0]);
-				WriteToken(".");
-				WriteMethodReference(node.Arguments[1] as MethodReferenceExpression);
-			}
+            {
+                Write(node.Arguments[0]);
+                WriteToken(".");
+                WriteMethodReference(node.Arguments[1] as MethodReferenceExpression);
+            }
 			else
 			{
 				Write(node.Arguments[1]);
-			}
-		}
+            }
+        }
 
 		private bool IsNewDelegate(ObjectCreationExpression node)
 		{
@@ -3883,7 +3983,7 @@ namespace Telerik.JustDecompiler.Languages
 		{
 			WriteKeyword(KeyWordWriter.TypeOf);
 			WriteToken("(");
-			WriteGenericReference(node.Type);
+            WriteGenericReference(node.Type);
 			WriteToken(")");
 		}
 
@@ -3898,7 +3998,7 @@ namespace Telerik.JustDecompiler.Languages
 			WriteSpace();
 			WriteKeyword(KeyWordWriter.Is);
 			WriteSpace();
-			WriteReferenceAndNamespaceIfInCollision(node.TargetType);
+            WriteReferenceAndNamespaceIfInCollision(node.TargetType);
 		}
 
 		public override void VisitSizeOfExpression(SizeOfExpression node)
@@ -3955,12 +4055,12 @@ namespace Telerik.JustDecompiler.Languages
 
 				WriteToken(")");
 			}
-
-			WriteToken("(");
-			EnterMethodInvocation(node.InvokeMethodReference);
-			VisitMethodParameters(node.Arguments);
-			LeaveMethodInvocation();
-			WriteToken(")");
+            
+            WriteToken("(");
+            EnterMethodInvocation(node.InvokeMethodReference);
+            VisitMethodParameters(node.Arguments);
+            LeaveMethodInvocation();
+            WriteToken(")");
 		}
 
 		public override void VisitLambdaExpression(LambdaExpression node)
@@ -4164,6 +4264,10 @@ namespace Telerik.JustDecompiler.Languages
 		protected virtual void WriteTypeAndName(TypeReference typeReference, string name)
 		{
 		}
+
+        protected virtual void WriteVariableTypeAndName(VariableDefinition variable)
+        {
+        }
 
 		protected virtual void WriteParameterTypeAndName(TypeReference typeReference, string name, ParameterDefinition reference)
 		{
@@ -4465,35 +4569,35 @@ namespace Telerik.JustDecompiler.Languages
 
 		public override void VisitDelegateCreationExpression(DelegateCreationExpression node)
 		{
-			if (!node.TypeIsImplicitlyInferable)
-			{
-				WriteKeyword(KeyWordWriter.New);
+            if (!node.TypeIsImplicitlyInferable)
+            {
+                WriteKeyword(KeyWordWriter.New);
 				WriteSpace();
 				WriteReference(node.Type);
 				Write("(");
-			}
+            }
 			if (node.MethodExpression.CodeNodeType != CodeNodeType.LambdaExpression)
 			{
 				Write(node.Target);
 				Write(".");
 			}
 			Write(node.MethodExpression);
-			if (!node.TypeIsImplicitlyInferable)
-			{
-				Write(")");
-			}
-		}
+            if (!node.TypeIsImplicitlyInferable)
+            {
+                Write(")");
+            }
+        }
 
-		public override void WriteMemberNavigationName(object memberDefinition, bool renameInvalidMembers)
+		public override void WriteMemberNavigationName(object memberDefinition)
 		{
 			if (memberDefinition is MethodReference)
 			{
-				WriteMethodReferenceNavigationName(memberDefinition as MethodReference, renameInvalidMembers);
+				WriteMethodReferenceNavigationName(memberDefinition as MethodReference);
 				return;
 			}
 			if (memberDefinition is TypeReference)
 			{
-				WriteTypeReferenceNavigationName(memberDefinition as TypeReference, renameInvalidMembers);
+				WriteTypeReferenceNavigationName(memberDefinition as TypeReference);
 				return;
 			}
 			if (memberDefinition is IMemberDefinition) // property or event
@@ -4510,7 +4614,7 @@ namespace Telerik.JustDecompiler.Languages
 						{
 							sb.Append('.');
 						}
-						if (renameInvalidMembers)
+						if (this.Settings.RenameInvalidMembers)
 						{
 							if (!NormalizeNameIfContainingGenericSymbols(nameParts[i], sb))
 							{
@@ -4525,7 +4629,7 @@ namespace Telerik.JustDecompiler.Languages
 					}
 					name = sb.ToString();
 				}
-				else if (renameInvalidMembers)
+				else if (this.Settings.RenameInvalidMembers)
 				{
 					name = Language.ReplaceInvalidCharactersInIdentifier(name);
 				}
@@ -4536,28 +4640,28 @@ namespace Telerik.JustDecompiler.Languages
 
 				TypeReference returnType = GetMemberType(theDefinition);
 
-				WriteTypeReferenceNavigationName(returnType, renameInvalidMembers);
+				WriteTypeReferenceNavigationName(returnType);
 			}
 		}
 
-		private void WriteTypeReferenceNavigationName(TypeReference type, bool renameInvalidMembers)
+		private void WriteTypeReferenceNavigationName(TypeReference type)
 		{
 			if (type.IsOptionalModifier || type.IsRequiredModifier)
 			{
-				WriteTypeReferenceNavigationName((type as IModifierType).ElementType, renameInvalidMembers);
+				WriteTypeReferenceNavigationName((type as IModifierType).ElementType);
 				return;
 			}
 			if (type.IsByReference)
 			{
 				type = (type as ByReferenceType).ElementType;
-				WriteTypeReferenceNavigationName(type, renameInvalidMembers);
+				WriteTypeReferenceNavigationName(type);
 				this.formatter.Write("&");
 				return;
 			}
 			if (type.IsPointer)
 			{
 				type = (type as PointerType).ElementType;
-				WriteTypeReferenceNavigationName(type, renameInvalidMembers);
+				WriteTypeReferenceNavigationName(type);
 				this.formatter.Write("*");
 				return;
 			}
@@ -4565,14 +4669,14 @@ namespace Telerik.JustDecompiler.Languages
 			{
 				int dimentions = (type as ArrayType).Dimensions.Count;
 				type = (type as ArrayType).ElementType;
-				WriteTypeReferenceNavigationName(type, renameInvalidMembers);
+				WriteTypeReferenceNavigationName(type);
 				this.formatter.Write(IndexLeftBracket);
 				this.formatter.Write(new string(',', dimentions - 1));
 				this.formatter.Write(IndexRightBracket);
 				return;
 			}
 			string name = GenericHelper.GetNonGenericName(type.Name);
-			if (renameInvalidMembers)
+			if (this.Settings.RenameInvalidMembers)
 			{
 				name = Language.ReplaceInvalidCharactersInIdentifier(name);
 			}
@@ -4581,15 +4685,15 @@ namespace Telerik.JustDecompiler.Languages
 
 			if (type is GenericInstanceType)
 			{
-				WriteGenericInstanceTypeArguments((GenericInstanceType)type, renameInvalidMembers);
+				WriteGenericInstanceTypeArguments((GenericInstanceType)type);
 			}
 			else if (type.HasGenericParameters)
 			{
-				this.WriteGenericParametersToDefinition(type, null, renameInvalidMembers);
+				this.WriteGenericParametersToDefinition(type, null, this.Settings.RenameInvalidMembers);
 			}
 		}
 
-		private void WriteGenericInstanceTypeArguments(IGenericInstance genericInstance, bool renameInvalidMembers)
+		private void WriteGenericInstanceTypeArguments(IGenericInstance genericInstance)
 		{
 			WriteToken(GenericLeftBracket);
 
@@ -4607,16 +4711,22 @@ namespace Telerik.JustDecompiler.Languages
 					genericArg = genericInstance.PostionToArgument[i];
 				}
 
-				WriteTypeReferenceNavigationName(genericArg, renameInvalidMembers);
+				WriteTypeReferenceNavigationName(genericArg);
 			}
 
 			WriteToken(GenericRightBracket);
 		}
 
-		private void WriteMethodReferenceNavigationName(MethodReference method, bool renameInvalidMembers)
+		private void WriteMethodReferenceNavigationName(MethodReference method)
 		{
-			string name = GenericHelper.GetNonGenericName(method.Name);
-			string[] nameParts = name.Split(new char[] { '.' });
+			string name = method.Name;
+			bool writeAsConstructor = method.IsConstructor && method.DeclaringType != null;
+			if (writeAsConstructor)
+			{
+				name = method.DeclaringType.Name;
+			}
+
+			string[] nameParts = GenericHelper.GetNonGenericName(name).Split(new char[] { '.' });
 			StringBuilder sb = new StringBuilder();
 			for (int i = 0; i < nameParts.Length; i++)
 			{
@@ -4624,7 +4734,7 @@ namespace Telerik.JustDecompiler.Languages
 				{
 					sb.Append('.');
 				}
-				if (renameInvalidMembers)
+				if (this.Settings.RenameInvalidMembers)
 				{
 					if (!NormalizeNameIfContainingGenericSymbols(nameParts[i], sb))
 					{
@@ -4640,11 +4750,11 @@ namespace Telerik.JustDecompiler.Languages
 
 			if (method is GenericInstanceMethod)
 			{
-				this.WriteGenericInstanceTypeArguments((GenericInstanceMethod)method, renameInvalidMembers);
+				this.WriteGenericInstanceTypeArguments((GenericInstanceMethod)method);
 			}
 			else if (method.HasGenericParameters)
 			{
-				this.WriteGenericParametersToDefinition(method, null, renameInvalidMembers);
+				this.WriteGenericParametersToDefinition(method, null, this.Settings.RenameInvalidMembers);
 			}
 
 			this.formatter.Write("(");
@@ -4657,14 +4767,17 @@ namespace Telerik.JustDecompiler.Languages
 						this.formatter.Write(", ");
 					}
 					ParameterDefinition currentParameter = method.Parameters[i];
-					WriteTypeReferenceNavigationName(currentParameter.ParameterType, renameInvalidMembers);
+					WriteTypeReferenceNavigationName(currentParameter.ParameterType);
 				}
 			}
 			this.formatter.Write(")");
 
-			this.formatter.Write(" : ");
+			if (!writeAsConstructor)
+			{
+				this.formatter.Write(" : ");
 
-			WriteTypeReferenceNavigationName(method.FixedReturnType, renameInvalidMembers);
+				WriteTypeReferenceNavigationName(method.FixedReturnType);
+			}
 		}
 
 		private bool NormalizeNameIfContainingGenericSymbols(string name, StringBuilder stringBuilder)
@@ -4852,6 +4965,35 @@ namespace Telerik.JustDecompiler.Languages
 
             WriteToken(".");
             WritePropertyName(node.Property);
+        }
+
+        protected void WriteAndMapVariableToCode(Action write, VariableDefinition variable)
+        {
+            int start = this.formatter.CurrentPosition;
+
+            write();
+            
+            OffsetSpan span = new OffsetSpan(start, this.formatter.CurrentPosition);
+
+            try
+            {
+                this.currentWritingInfo.CodeMappingInfo.Add(variable, span);
+            }
+            catch (ArgumentException ex)
+            {
+                this.OnExceptionThrown(ex);
+            }
+        }
+
+        protected void WriteAndMapParameterToCode(Action write, int index)
+        {
+            int start = this.formatter.CurrentPosition;
+
+            write();
+
+            IMemberDefinition currentMember = this.membersStack.Peek();
+            OffsetSpan span = new OffsetSpan(start, this.formatter.CurrentPosition);
+            this.currentWritingInfo.CodeMappingInfo.Add(currentMember, index, span);
         }
 	}
 }

@@ -1,12 +1,13 @@
-﻿using JustDecompile.Tools.MSBuildProjectBuilder;
+﻿
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Telerik.JustDecompiler.External;
 using Telerik.JustDecompiler.Languages;
 using Telerik.JustDecompiler.Languages.CSharp;
 using Telerik.JustDecompiler.Languages.VisualBasic;
+using JustDecompile.Tools.MSBuildProjectBuilder;
+using Mono.Cecil.AssemblyResolver;
 
 namespace JustDecompileCmdShell
 {
@@ -38,8 +39,11 @@ namespace JustDecompileCmdShell
                 { "/net4.5.1", FrameworkVersion.v4_5_1 },
                 { "/net4.5.2", FrameworkVersion.v4_5_2 },
                 { "/net4.6", FrameworkVersion.v4_6 },
-                { "/net4.6.1", FrameworkVersion.v4_6_1 }
-            };
+                { "/net4.6.1", FrameworkVersion.v4_6_1 },
+                { "/net4.6.2", FrameworkVersion.v4_6_2 },
+                { "/net4.7", FrameworkVersion.v4_7 },
+				{ "/net4.7.1", FrameworkVersion.v4_7_1 }
+			};
         }
 
         internal static void WriteLineColor(ConsoleColor consoleColor, string description)
@@ -63,6 +67,7 @@ namespace JustDecompileCmdShell
             bool? addDocumentation = null;
             bool? renameInvalidMembers = null;
             bool? writeLargeNumbersInHex = null;
+            bool? decompileDangerousResources = null;
 
             bool isInvalidVisualStudioVersion = false;
             VisualStudioVersion visualStudioVersion = VisualStudioVersion.Unknown;
@@ -119,6 +124,13 @@ namespace JustDecompileCmdShell
             if (TryGetNoHexArgument(args))
             {
                 writeLargeNumbersInHex = false;
+                isProjectGenerationRequested = true;
+                numberOfFoundValidArguments++;
+            }
+
+            if (TryGetDecompileDangerousResourcesArgument(args))
+            {
+                decompileDangerousResources = true;
                 isProjectGenerationRequested = true;
                 numberOfFoundValidArguments++;
             }
@@ -201,10 +213,14 @@ namespace JustDecompileCmdShell
                 result.RenameInvalidMembers = renameInvalidMembers.Value;
             }
 
-            // This if statement must be after the if statement setting the language, because otherwise the value would be lost.
             if (writeLargeNumbersInHex.HasValue)
             {
-                result.Language.WriteLargeNumbersInHex = writeLargeNumbersInHex.Value;
+                result.WriteLargeNumbersInHex = writeLargeNumbersInHex.Value;
+            }
+
+            if (decompileDangerousResources.HasValue)
+            {
+                result.DecompileDangerousResources = decompileDangerousResources.Value;
             }
 
             if (visualStudioVersion != VisualStudioVersion.Unknown)
@@ -249,6 +265,9 @@ namespace JustDecompileCmdShell
                         return true;
                     case "2015":
                         visualStudioVersion = VisualStudioVersion.VS2015;
+                        return true;
+                    case "2017":
+                        visualStudioVersion = VisualStudioVersion.VS2017;
                         return true;
                     default:
                         isInvalidVisualStudioVersion = true;
@@ -303,6 +322,16 @@ namespace JustDecompileCmdShell
             return false;
         }
 
+        private static bool TryGetDecompileDangerousResourcesArgument(string[] args)
+        {
+            List<string> @params = args.ToList();
+            if (@params.FirstOrDefault(p => (p == "/decompileDangerousResources")) != null)
+            {
+                return true;
+            }
+            return false;
+        }
+
         private static bool TryGetFrameworkVersion(string[] args, string targetFramework)
         {
             bool contains = args.Contains(targetFramework);
@@ -316,7 +345,7 @@ namespace JustDecompileCmdShell
             {
                 if (languageAsString == CommandLineManager.CSharpLanguage)
                 {
-                    result = LanguageFactory.GetLanguage(CSharpVersion.V6);
+                    result = LanguageFactory.GetLanguage(CSharpVersion.V7);
                     return true;
                 }
                 else if (languageAsString == CommandLineManager.VisualBasicLanguage)
@@ -380,7 +409,8 @@ namespace JustDecompileCmdShell
             WriteLine();
             SetForegroundColor(ConsoleColor.White);
             WriteLine("JustDecompile /target: /out: [/lang:] [/vs:] [/net4.0] [/net4.5] [/net4.5.1]");
-            WriteLine("[/net4.5.2] [/net4.6] [/net4.6.1] [/nodoc] [/norename] [/nohex] [/?]");
+            WriteLine("[/net4.5.2] [/net4.6] [/net4.6.1] [/net4.6.2] [/net4.7] [/net4.7.1] [/nodoc] [/norename]");
+            WriteLine("[/nohex] [/decompileDangerousResources] [/?]");
             WriteLine();
 
             WriteLine("[/?]        Display command line help.");
@@ -393,11 +423,11 @@ namespace JustDecompileCmdShell
             Console.CursorLeft = 12;
             WriteLine(SupportedLanguagesMessage);
 
-            WriteLine("[/vs:]      [/vs:2015]. The target Visual Studio(r) project version.");
+            WriteLine("[/vs:]      [/vs:2017]. The target Visual Studio(r) project version.");
             Console.CursorLeft = 12;
             WriteLine("Supported Visual Studio(r) versions: 2010 and later.");
 
-            WriteLine("[/net4.0 /net4.5 /net4.5.1 /net4.5.2 /net4.6 /net4.6.1]");
+            WriteLine("[/net4.0 /net4.5 /net4.5.1 /net4.5.2 /net4.6 /net4.6.1 /net4.6.2 /net4.7 /net4.7.1]");
             Console.CursorLeft = 12;
             WriteLine("Fallback .NET Framework version of the generated project. This");
             Console.CursorLeft = 12;
@@ -414,6 +444,12 @@ namespace JustDecompileCmdShell
             WriteLine("WARNING: Enabling this might result in code that fails to compile.");
 
             WriteLine("[/nohex]    Disable output of large numbers in HEX format.");
+            
+            WriteLine("[/decompileDangerousResources] Enable decompilation of dangerous resources,");
+            Console.CursorLeft = 12;
+            WriteLine("which may contain malicious code. Decompilation of such resources will result");
+            Console.CursorLeft = 12;
+            WriteLine("in execution of that malicious code. WARNING: Use with trusted assemblies only.");
 
             WriteLine();
 

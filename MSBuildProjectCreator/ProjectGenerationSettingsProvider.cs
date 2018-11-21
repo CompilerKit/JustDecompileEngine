@@ -14,18 +14,20 @@ namespace JustDecompile.Tools.MSBuildProjectBuilder
     public static class ProjectGenerationSettingsProvider
     {
         public static ProjectGenerationSettings GetProjectGenerationSettings(string assemblyFilePath, IAssemblyInfoService assemblyInfoService,
-            IFrameworkResolver frameworkResolver, VisualStudioVersion visualStudioVersion, ILanguage language)
+            IFrameworkResolver frameworkResolver, VisualStudioVersion visualStudioVersion, ILanguage language, ITargetPlatformResolver targetPlatformResolver)
         {
             AssemblyDefinition assembly = Telerik.JustDecompiler.Decompiler.Utilities.GetAssembly(assemblyFilePath);
             AssemblyInfo assemblyInfo = assemblyInfoService.GetAssemblyInfo(assembly, frameworkResolver);
-            TargetPlatform targetPlatform = GlobalAssemblyResolver.Instance.GetTargetPlatform(assemblyFilePath);
+            TargetPlatform targetPlatform = targetPlatformResolver.GetTargetPlatform(assembly.MainModule.FilePath, assembly.MainModule);
+
             foreach (KeyValuePair<ModuleDefinition, FrameworkVersion> pair in assemblyInfo.ModulesFrameworkVersions)
             {
                 if (pair.Value == FrameworkVersion.Unknown)
                 {
                     return new ProjectGenerationSettings(true, ResourceStrings.GenerateOnlySourceFilesDueToUnknownFrameworkVersion, false);
                 }
-                else if (pair.Value == FrameworkVersion.WindowsCE || pair.Value == FrameworkVersion.WindowsPhone ||
+                else if (pair.Value == FrameworkVersion.WindowsCE || 
+					(targetPlatform == TargetPlatform.WindowsPhone && pair.Value == FrameworkVersion.WindowsPhone) ||
                     (targetPlatform == TargetPlatform.WinRT && WinRTProjectTypeDetector.GetProjectType(assembly) == WinRTProjectType.Unknown))
                 {
                     return new ProjectGenerationSettings(true, ResourceStrings.GenerateOnlySourceFilesDueToNotSupportedProjectType, false);

@@ -12,7 +12,7 @@ namespace Telerik.JustDecompiler.Steps
 	class RemoveUnusedVariablesStep : BaseCodeVisitor, IDecompilationStep
 	{
 
-		private DecompilationContext context;
+		protected DecompilationContext context;
 		private readonly Dictionary<VariableReference, ExpressionStatement> referenceToDeclarationStatementMap = new Dictionary<VariableReference, ExpressionStatement>();
 		private BlockStatement theBody;
 		private readonly HashSet<VariableReference> bannedVariables = new HashSet<VariableReference>();
@@ -147,7 +147,7 @@ namespace Telerik.JustDecompiler.Steps
 			}
 		}
 
-		private bool CanExistInStatement(Expression expression)
+		protected virtual bool CanExistInStatement(Expression expression)
 		{
 			if (expression.CodeNodeType == CodeNodeType.MethodInvocationExpression ||
 				expression.CodeNodeType == CodeNodeType.DelegateInvokeExpression ||

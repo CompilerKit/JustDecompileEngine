@@ -11,6 +11,8 @@ namespace Mono.Cecil.AssemblyResolver
 
         private static readonly string[] resolvableExtensions = { ".dll", ".exe", ".winmd" };
 
+        public static readonly Version DefaultAssemblyVersion = new Version(0, 0, 0, 0);
+
         public static string SILVERLIGHT_RUNTIME = GetSilverlightRunTime(ProgramFilesX86);
 
         public static string SILVERLIGHT_RUNTIME_64 = GetSilverlightRunTime(ProgramW6432);
@@ -21,7 +23,9 @@ namespace Mono.Cecil.AssemblyResolver
 
         public static string COMPACT_FRAMEWORK = @"{0}\Microsoft.NET\SDK\CompactFramework\{1}\WindowsCE\{2}.dll";
 
-        public static string WINDOWS_PHONE_STRING_PATHERN = @"{0}\Reference Assemblies\Microsoft\Framework\Silverlight\{1}\Profile\WindowsPhone{2}\{3}.dll";
+        public static string NETCORE_SHAREDASSEMBLIES = @"{0}\dotnet\shared\Microsoft.NETCore.App\";
+
+		public static string WINDOWS_PHONE_STRING_PATHERN = @"{0}\Reference Assemblies\Microsoft\Framework\Silverlight\{1}\Profile\WindowsPhone{2}\{3}.dll";
 
         public static string CLR = @"{0}\assembly\{1}\{2}\{3}\{4}{5}";
 
@@ -48,6 +52,8 @@ namespace Mono.Cecil.AssemblyResolver
         public static string[] WINDOWS_CE_VERSIONS = new string[] { "v2.0", "v3.5" };
 
         public static string[] SILVERLIGHT_VERSIONS = new string[] { "v4.0", "v5.0", "v3.0", "v2.0" };
+
+		public static string[] NETCORE_VERSIONS = new string[] { "1.0", "1.1", "2.0" };
 
         public static readonly string[] CoreAssemblies = { 
                                                               "mscorlib.dll",
@@ -103,6 +109,34 @@ namespace Mono.Cecil.AssemblyResolver
                 return Environment.GetEnvironmentVariable("ProgramW6432") ?? string.Empty;
             }
         }
+
+        public static string NetCoreX86SharedAssemblies
+        {
+            get
+            {
+                return string.Format(NETCORE_SHAREDASSEMBLIES, ProgramFilesX86);
+            }
+        }
+
+        public static string NetCoreX64SharedAssemblies
+        {
+            get
+            {
+                return string.Format(NETCORE_SHAREDASSEMBLIES, ProgramW6432);
+            }
+        }
+
+        public static bool IsInNetCoreSharedAssembliesDir(string assemblyPath)
+		{
+			assemblyPath = assemblyPath.ToLowerInvariant();
+
+			if (assemblyPath.StartsWith(NetCoreX64SharedAssemblies.ToLowerInvariant()) || assemblyPath.StartsWith(NetCoreX86SharedAssemblies.ToLowerInvariant()))
+			{
+				return true;
+			}
+
+			return false;
+		}
 
         private static string GetSilverlightRunTime(string targetProgramFilesDir)
         {

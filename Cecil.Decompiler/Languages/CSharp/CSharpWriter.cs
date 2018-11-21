@@ -36,6 +36,7 @@ using System.Collections;
 using Telerik.JustDecompiler.Common;
 using System.Linq;
 using Telerik.JustDecompiler.Decompiler;
+using Mono.Cecil.Cil;
 
 
 namespace Telerik.JustDecompiler.Languages.CSharp
@@ -45,8 +46,8 @@ namespace Telerik.JustDecompiler.Languages.CSharp
         protected const string RefOutResolvementError = "Out parameters might be shown as ref. Please, locate the assembly where the method is defined.";
 
 
-        public CSharpWriter(ILanguage language, IFormatter formatter, IExceptionFormatter exceptionFormatter, bool writeExceptionsAsComments)
-            : base(language, formatter, exceptionFormatter, writeExceptionsAsComments)
+        public CSharpWriter(ILanguage language, IFormatter formatter, IExceptionFormatter exceptionFormatter, IWriterSettings settings)
+            : base(language, formatter, exceptionFormatter, settings)
         {
         }
 
@@ -106,17 +107,6 @@ namespace Telerik.JustDecompiler.Languages.CSharp
 
         protected override void WriteIndexerKeywords()
         {
-        }
-
-        protected override void WriteLabel(string label)
-        {
-            if (label != "")
-            {
-                Outdent();
-                Write(label);
-                WriteToken(":");
-                Indent();
-            }
         }
 
         protected override AttributeWriter CreateAttributeWriter()
@@ -236,7 +226,7 @@ namespace Telerik.JustDecompiler.Languages.CSharp
         public override string ToTypeString(TypeReference type)
         {
             /// There might be user generated classes with this name. Only the ones declared in mscorlib should be replaced by the language keyword.
-            if (type.Scope.Name == "mscorlib" || type.Scope.Name == "CommonLanguageRuntimeLibrary" || type.Scope.Name == "System.Runtime")
+            if (IsReferenceFromMscorlib(type))
             {
                 switch (type.Name)
                 {
@@ -299,6 +289,27 @@ namespace Telerik.JustDecompiler.Languages.CSharp
             WriteReferenceAndNamespaceIfInCollision(typeReference);
             WriteSpace();
             Write(name);
+        }
+
+        protected override void DoWriteVariableTypeAndName(VariableDefinition variable)
+        {
+            WriteReferenceAndNamespaceIfInCollision(variable.VariableType);
+            WriteSpace();
+            WriteVariableName(variable);
+        }
+        
+        public override void VisitRefVariableDeclarationExpression(RefVariableDeclarationExpression node)
+        {
+            WriteKeyword(KeyWordWriter.ByRef);
+            WriteSpace();
+            WriteReferenceAndNamespaceIfInCollision(node.Variable.VariableType.GetElementType());
+            WriteSpace();
+            WriteVariableName(node.Variable);
+        }
+
+        private void WriteVariableName(VariableDefinition variable)
+        {
+            this.WriteAndMapVariableToCode(() => Write(GetVariableName(variable)), variable);
         }
 
         protected override void WriteFieldTypeAndName(FieldDefinition field)
@@ -378,7 +389,7 @@ namespace Telerik.JustDecompiler.Languages.CSharp
                 name = Utilities.EscapeNameIfNeeded(name, this.Language);
             }
 
-            Write(name);
+            this.WriteAndMapParameterToCode(() => Write(name), reference.Index);
         }
 
         public override void VisitUnsafeBlockStatement(UnsafeBlockStatement unsafeBlock)
@@ -556,6 +567,22 @@ namespace Telerik.JustDecompiler.Languages.CSharp
                     return "+=";
                 case BinaryOperator.SubtractAssign:
                     return "-=";
+                case BinaryOperator.AndAssign:
+                    return "&=";
+                case BinaryOperator.DivideAssign:
+                    return "/=";
+                case BinaryOperator.LeftShiftAssign:
+                    return "<<=";
+                case BinaryOperator.ModuloAssign:
+                    return "%=";
+                case BinaryOperator.MultiplyAssign:
+                    return "*=";
+                case BinaryOperator.OrAssign:
+                    return "|=";
+                case BinaryOperator.RightShiftAssign:
+                    return ">>=";
+                case BinaryOperator.XorAssign:
+                    return "^=";
                 case BinaryOperator.NullCoalesce:
                     return "??";
                 default:
@@ -629,6 +656,47 @@ namespace Telerik.JustDecompiler.Languages.CSharp
                 return;
             }
             base.VisitBinaryExpression(node);
+        }
+
+        protected override void WriteRightPartOfBinaryExpression(BinaryExpression binaryExpression)
+        {
+            if (binaryExpression.IsAssignmentExpression &&
+                binaryExpression.Left.CodeNodeType == CodeNodeType.RefVariableDeclarationExpression)
+            {
+                WriteKeyword(KeyWordWriter.ByRef);
+                WriteSpace();
+
+                if (binaryExpression.Right.CodeNodeType == CodeNodeType.UnaryExpression)
+                {
+                    UnaryExpression unary = binaryExpression.Right as UnaryExpression;
+                    if (unary.Operator == UnaryOperator.AddressReference)
+                    {
+                        Visit(unary.Operand);
+
+                        return;
+                    }
+                }
+            }
+
+            Visit(binaryExpression.Right);
+        }
+
+        public override void VisitRefReturnExpression(RefReturnExpression node)
+        {
+            WriteKeyword(KeyWordWriter.Return);
+            WriteSpace();
+            WriteKeyword(KeyWordWriter.ByRef);
+            WriteSpace();
+
+            if (node.Value.CodeNodeType == CodeNodeType.UnaryExpression &&
+                (node.Value as UnaryExpression).Operator == UnaryOperator.AddressReference)
+            {
+                Visit((node.Value as UnaryExpression).Operand);
+            }
+            else
+            {
+                Visit(node.Value);
+            }
         }
 
         public override void VisitBoxExpression(BoxExpression node)
@@ -718,7 +786,7 @@ namespace Telerik.JustDecompiler.Languages.CSharp
             Visit(node.Body);
         }
 
-        public override void VisitCastExpression(CastExpression node)
+        public override void VisitExplicitCastExpression(ExplicitCastExpression node)
         {
             if (node.IsChecked)
             {
@@ -744,7 +812,7 @@ namespace Telerik.JustDecompiler.Languages.CSharp
                 }
             }
             WriteToken(")");
-
+            
             bool isComplexCastTarget = IsComplexTarget(node.Expression);
 
             if (isComplexCastTarget)
@@ -805,6 +873,25 @@ namespace Telerik.JustDecompiler.Languages.CSharp
 
             if (node.Operator == UnaryOperator.AddressDereference)
             {
+                if (node.Operand.CodeNodeType == CodeNodeType.VariableReferenceExpression &&
+                    (node.Operand as VariableReferenceExpression).IsByReference)
+                {
+                    this.Visit(node.Operand);
+
+                    return;
+                }
+                else if (node.Operand.CodeNodeType == CodeNodeType.ParenthesesExpression)
+                {
+                    ParenthesesExpression parentheses = node.Operand as ParenthesesExpression;
+                    if (parentheses.Expression.CodeNodeType == CodeNodeType.MethodInvocationExpression &&
+                        (parentheses.Expression as MethodInvocationExpression).IsByReference)
+                    {
+                        this.Visit(parentheses.Expression);
+
+                        return;
+                    }
+                }
+
                 base.VisitUnaryExpression(node);
                 return;
             }
@@ -944,13 +1031,13 @@ namespace Telerik.JustDecompiler.Languages.CSharp
                 {
                     WriteKeyword(KeyWordWriter.Dim);
                     WriteSpace();
-                    Write(variableName);
+                    this.WriteAndMapVariableToCode(() => Write(variableName), node.Variable);
                 }
                 else if (node.Variable.Resolve().IsDynamic)
                 {
                     WriteDynamicType(node.Variable.VariableType, node.Variable.DynamicPositioningFlags);
                     WriteSpace();
-                    Write(variableName);
+                    this.WriteAndMapVariableToCode(() => Write(variableName), node.Variable);
                 }
                 else
                 {
@@ -1221,7 +1308,27 @@ namespace Telerik.JustDecompiler.Languages.CSharp
 
         protected override bool IsComplexTarget(Expression target)
         {
-            return base.IsComplexTarget(target) || target.CodeNodeType == CodeNodeType.DynamicConstructorInvocationExpression || target.CodeNodeType == CodeNodeType.LinqQueryExpression;
+            if (target.CodeNodeType == CodeNodeType.UnaryExpression)
+            {
+                UnaryExpression unary = target as UnaryExpression;
+                if (unary.Operator == UnaryOperator.AddressDereference &&
+                    unary.Operand.CodeNodeType == CodeNodeType.VariableReferenceExpression)
+                {
+                    VariableReferenceExpression variableReference = unary.Operand as VariableReferenceExpression;
+                    if (variableReference.IsByReference)
+                    {
+                        // derefenced ref local
+                        return false;
+                    }
+                }
+            }
+
+            return base.IsComplexTarget(target) ||
+                   target.CodeNodeType == CodeNodeType.DynamicConstructorInvocationExpression ||
+                   target.CodeNodeType == CodeNodeType.LinqQueryExpression ||
+                   target.CodeNodeType == CodeNodeType.ConditionExpression ||
+                   target.CodeNodeType == CodeNodeType.ExplicitCastExpression ||
+                   target.CodeNodeType == CodeNodeType.SafeCastExpression;
         }
 
         public override void VisitDynamicMemberReferenceExpression(DynamicMemberReferenceExpression node)
@@ -1448,6 +1555,15 @@ namespace Telerik.JustDecompiler.Languages.CSharp
             if (method.MethodReturnType.TryGetDynamicAttribute(out dynamicAttribute))
             {
                 WriteDynamicType(method.ReturnType, dynamicAttribute);
+                return;
+            }
+
+            if (method.ReturnType.IsByReference)
+            {
+                this.WriteKeyword(this.KeyWordWriter.ByRef);
+                this.WriteSpace();
+                WriteReferenceAndNamespaceIfInCollision(method.ReturnType.GetElementType());
+
                 return;
             }
 
@@ -1721,6 +1837,17 @@ namespace Telerik.JustDecompiler.Languages.CSharp
         {
             // All C# classes (static or instance) support explicit static members.
             return true;
+        }
+
+        /// <summary>
+        /// Gets the type string for given type reference. If the type string is a system type and it's in collision with
+        /// some keyword, it's escaped.
+        /// </summary>
+        internal override string ToEscapedTypeString(TypeReference reference)
+        {
+            // There is no need to escape the system types in C#, since all type names are starting with capital letter,
+            // and all keywords are starting with non-capital letter.
+            return ToTypeString(reference);
         }
     }
 }

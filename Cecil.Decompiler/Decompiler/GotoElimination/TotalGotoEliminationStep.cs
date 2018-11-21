@@ -14,6 +14,7 @@ namespace Telerik.JustDecompiler.Decompiler.GotoElimination
     /// Eliminates all goto statements by introducing new statements and moving code. For complete algorithm, see
     /// <see cref="Taming Control Flow A Structured Approach to Eliminating Goto Statements.pdf"/> in DecompilationPapers folder.
     /// </summary>
+    [Obsolete]
     class TotalGotoEliminationStep : IDecompilationStep
     {
         private MethodSpecificContext methodContext;
@@ -161,9 +162,9 @@ namespace Telerik.JustDecompiler.Decompiler.GotoElimination
             gotoPairs = gotoPairs.OrderBy(x => x.Value.Label);
 
             /// Hopefully those names arent taken.
-            this.breakVariable = new VariableDefinition("breakCondition", methodContext.Method.Module.TypeSystem.Boolean);
+            this.breakVariable = new VariableDefinition("breakCondition", methodContext.Method.Module.TypeSystem.Boolean, this.methodContext.Method);
             methodContext.VariablesToRename.Add(this.breakVariable.Resolve());
-            this.continueVariable = new VariableDefinition("continueCondition", methodContext.Method.Module.TypeSystem.Boolean);
+            this.continueVariable = new VariableDefinition("continueCondition", methodContext.Method.Module.TypeSystem.Boolean, this.methodContext.Method);
             methodContext.VariablesToRename.Add(this.continueVariable.Resolve());
             return gotoPairs;
         }
@@ -697,7 +698,7 @@ namespace Telerik.JustDecompiler.Decompiler.GotoElimination
                 ///Generate the variable
                 TypeReference boolType = methodContext.Method.Module.TypeSystem.Boolean;
                 string varName = label + "_cond";
-                VariableDefinition variable = new VariableDefinition(varName, boolType);
+                VariableDefinition variable = new VariableDefinition(varName, boolType, this.methodContext.Method);
                 labelToVariable.Add(label, variable);
                 assignedOnly.Add(variable, true);
                 return variable;
@@ -729,7 +730,7 @@ namespace Telerik.JustDecompiler.Decompiler.GotoElimination
             /// Generate variable and extract the switch condition
             string switchVariableName = "switch" + switchStatement.ConditionBlock.First.Offset;
             TypeReference switchVariableType = GetSwitchType(switchStatement);
-            VariableDefinition switchVariable = new VariableDefinition(switchVariableName, switchVariableType);
+            VariableDefinition switchVariable = new VariableDefinition(switchVariableName, switchVariableType, this.methodContext.Method);
             switchVariables.Add(switchVariable);
 			VariableReferenceExpression switchVarEx = new VariableReferenceExpression(switchVariable, null);
             ExtractConditionIntoVariable(switchVarEx, switchStatement, containingBlock);

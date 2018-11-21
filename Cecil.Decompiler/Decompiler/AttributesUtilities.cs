@@ -9,6 +9,7 @@ using Telerik.JustDecompiler.Languages;
 using System.Collections;
 using Mono.Collections.Generic;
 using Telerik.JustDecompiler.Common;
+using System.Runtime.CompilerServices;
 
 namespace Telerik.JustDecompiler.Decompiler
 {
@@ -267,7 +268,13 @@ namespace Telerik.JustDecompiler.Decompiler
 				usedTypes.AddRange(GetCustomAttributeUsedTypes(GetMethodDllImportAttribute(method)));
 			}
 
-			return usedTypes;
+            if (method.HasImplAttributes &&
+                ShouldWriteMethodImplAttribute(method))
+            {
+                usedTypes.AddRange(GetCustomAttributeUsedTypes(GetMethodImplAttribute(method)));
+            }
+
+            return usedTypes;
 		}
 
 		public static TypeReference GetOutAttributeTypeReference(ModuleDefinition module)
@@ -430,7 +437,24 @@ namespace Telerik.JustDecompiler.Decompiler
 			}
 		}
 
-		private static void CreateAndAddCharSetFieldArgument(MethodDefinition method, CustomAttribute dllImportAttr)
+        internal static bool ShouldWriteMethodImplAttribute(MethodDefinition method)
+        {
+            if (method.DeclaringType.IsDelegate())
+            {
+                return false;
+            }
+
+            // The preservesig flag can be controlled using the DllImport attribute.
+            if (method.HasPInvokeInfo &&
+                method.ImplAttributes == MethodImplAttributes.PreserveSig)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static void CreateAndAddCharSetFieldArgument(MethodDefinition method, CustomAttribute dllImportAttr)
 		{
 			System.Runtime.InteropServices.CharSet charSet = System.Runtime.InteropServices.CharSet.None;
 			if (method.PInvokeInfo.IsCharSetAnsi)
@@ -650,5 +674,119 @@ namespace Telerik.JustDecompiler.Decompiler
 
 			return typesDependingOn;
 		}
-	}
+
+        #region MethodImplAttribute
+
+        public static CustomAttribute GetMethodImplAttribute(MethodDefinition method)
+        {
+            Type[] argumentTypes = DoesMethodHaveMethodImplOptions(method) ? new Type[] { typeof(MethodImplOptions) } : new Type[0];
+            MethodReference constructor = Utilities.GetEmptyConstructor(typeof(MethodImplAttribute), method.DeclaringType.Module, argumentTypes);
+            CustomAttribute attribute = new CustomAttribute(constructor);
+            
+            AddMethodImplOptions(method, attribute);
+            AddMethodCodeType(method, attribute);
+
+            return attribute;
+        }
+        
+        private static void AddMethodImplOptions(MethodDefinition method, CustomAttribute attribute)
+        {
+            if (DoesMethodHaveMethodImplOptions(method))
+            {
+                MethodImplOptions value = default(MethodImplOptions);
+                
+                if (method.AggressiveInlining)
+                {
+                    value |= MethodImplOptions.AggressiveInlining;
+                }
+
+                if (method.IsForwardRef)
+                {
+                    value |= MethodImplOptions.ForwardRef;
+                }
+
+                if (method.IsInternalCall)
+                {
+                    value |= MethodImplOptions.InternalCall;
+                }
+
+                if (method.NoInlining)
+                {
+                    value |= MethodImplOptions.NoInlining;
+                }
+
+                if (method.NoOptimization)
+                {
+                    value |= MethodImplOptions.NoOptimization;
+                }
+
+                if (method.IsPreserveSig && !method.HasPInvokeInfo)
+                {
+                    value |= MethodImplOptions.PreserveSig;
+                }
+
+                if (method.IsSynchronized)
+                {
+                    value |= MethodImplOptions.Synchronized;
+                }
+
+                if (method.IsUnmanaged)
+                {
+                    value |= MethodImplOptions.Unmanaged;
+                }
+
+                attribute.ConstructorArguments.Add(GetMethodImplAttributeArgument(method, value));
+            }
+        }
+
+        private static void AddMethodCodeType(MethodDefinition method, CustomAttribute attribute)
+        {
+            if (method.IsNative || method.IsOPTIL || method.IsRuntime)
+            {
+                MethodCodeType value = default(MethodCodeType);
+                
+                if (method.IsNative)
+                {
+                    value |= MethodCodeType.Native;
+                }
+
+                if (method.IsOPTIL)
+                {
+                    value |= MethodCodeType.OPTIL;
+                }
+
+                if (method.IsRuntime)
+                {
+                    value |= MethodCodeType.Runtime;
+                }
+
+                attribute.Fields.Add(new CustomAttributeNamedArgument("MethodCodeType", GetMethodImplAttributeArgument(method, value)));
+            }
+        }
+
+        private static CustomAttributeArgument GetMethodImplAttributeArgument(MethodDefinition method, object value)
+        {
+            ModuleDefinition module = method.DeclaringType.Module;
+            AssemblyNameReference mscorlib = module.ReferencedMscorlibRef();
+
+            Type argumentType = value.GetType();
+            TypeReference cecilArgumentType = new TypeReference(argumentType.Namespace, argumentType.Name, module, mscorlib);
+
+            return new CustomAttributeArgument(cecilArgumentType, (int)value);
+        }
+        
+        private static bool DoesMethodHaveMethodImplOptions(MethodDefinition method)
+        {
+            return method.AggressiveInlining ||
+                   method.IsForwardRef ||
+                   method.IsInternalCall ||
+                   method.NoInlining ||
+                   method.NoOptimization ||
+                   (method.IsPreserveSig && !method.HasPInvokeInfo) ||
+                   method.IsSynchronized ||
+                   method.IsUnmanaged;
+        }
+
+        #endregion
+    }
 }

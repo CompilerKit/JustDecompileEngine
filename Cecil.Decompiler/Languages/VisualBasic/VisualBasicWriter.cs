@@ -36,15 +36,16 @@ using Telerik.JustDecompiler.Ast.Statements;
 using Mono.Cecil.Extensions;
 using Mono.Cecil.Cil;
 using Telerik.JustDecompiler.Decompiler;
+using Mono.Collections.Generic;
 
 namespace Telerik.JustDecompiler.Languages.VisualBasic
 {
     public class VisualBasicWriter : NamespaceImperativeLanguageWriter
     {
-        readonly Stack<StatementState> loopStates = new Stack<StatementState>();
+        readonly Stack<StatementState> statementStates = new Stack<StatementState>();
 
-        public VisualBasicWriter(ILanguage language, IFormatter formatter, IExceptionFormatter exceptionFormatter, bool writeExceptionsAsComments)
-            : base(language, formatter, exceptionFormatter, writeExceptionsAsComments)
+        public VisualBasicWriter(ILanguage language, IFormatter formatter, IExceptionFormatter exceptionFormatter, IWriterSettings settings)
+            : base(language, formatter, exceptionFormatter, settings)
         {
         }
 
@@ -62,19 +63,6 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
         {
             WriteKeyword("Default");
             WriteSpace();
-        }
-
-        protected override void WriteLabel(string label)
-        {
-            if (label != "")
-            {
-                Outdent();
-                WriteToken("'");
-                Write(label);
-                WriteToken(":");
-                // WriteLine();
-                Indent();
-            }
         }
 
         protected override AttributeWriter CreateAttributeWriter()
@@ -308,9 +296,9 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
 
         protected void WriteDim()
         {
-            if (loopStates.Count > 0)
+            if (statementStates.Count > 0)
             {
-                var lastState = loopStates.Peek();
+                var lastState = statementStates.Peek();
                 if ((lastState == StatementState.ForEachInitializer) ||
                     (lastState == StatementState.ForInitializer) ||
                     (lastState == StatementState.Catch) ||
@@ -325,7 +313,7 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
         public override string ToTypeString(TypeReference type)
         {
             /// There might be user generated classes with this name. Only the ones declared in mscorlib should be replaced by the language keyword.
-            if (type.Scope.Name == "mscorlib" || type.Scope.Name == "CommonLanguageRuntimeLibrary" || type.Scope.Name == "System.Runtime")
+            if (IsReferenceFromMscorlib(type))
             {
                 switch (type.Name)
                 {
@@ -402,6 +390,21 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
             WriteReferenceAndNamespaceIfInCollision(typeReference);
         }
 
+        protected override void DoWriteVariableTypeAndName(VariableDefinition variable)
+        {
+            if (this.isWritingComment)
+            {
+                Write(GetVariableName(variable));
+            }
+            else
+            {
+                this.WriteAndMapVariableToCode(() => Write(GetVariableName(variable)), variable);
+            }
+
+            WriteAsBetweenSpaces();
+            WriteReferenceAndNamespaceIfInCollision(variable.VariableType);
+        }
+
         protected override void DoWriteParameterTypeAndName(TypeReference type, string name, ParameterDefinition reference)
         {
             if (reference.IsParamArray())
@@ -420,7 +423,14 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
 				name = Utilities.EscapeNameIfNeeded(name, this.Language);
 			}
 
-            Write(name);
+            if (this.isWritingComment)
+            {
+                Write(name);
+            }
+            else
+            {
+                this.WriteAndMapParameterToCode(() => Write(name), reference.Index);
+            }
 
             // undocumented C# keyword like __arglist
 
@@ -467,6 +477,7 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
 			}
 
 			WriteAsBetweenSpaces();
+            this.AttributeWriter.WriteMemberReturnValueAttributes(property.GetMethod);
 			WriteReferenceAndNamespaceIfInCollision(property.PropertyType);
 		}
 
@@ -627,6 +638,7 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
             if ((method.ReturnType != null) && (method.ReturnType.FullName != Constants.Void))
             {
                 WriteAsBetweenSpaces();
+                this.AttributeWriter.WriteMemberReturnValueAttributes(method);
                 WriteMethodReturnType(method);
             }
         }
@@ -821,6 +833,14 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
                     return "+=";
                 case BinaryOperator.SubtractAssign:
                     return "-=";
+                case BinaryOperator.MultiplyAssign:
+                    return "*=";
+                case BinaryOperator.DivideAssign:
+                    return "/=";
+                case BinaryOperator.LeftShiftAssign:
+                    return "<<=";
+                case BinaryOperator.RightShiftAssign:
+                    return ">>=";
                 default:
                     throw new ArgumentException();
             }
@@ -986,7 +1006,7 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
             WriteToken("(");
             WriteKeyword(KeyWordWriter.AddressOf);
             WriteSpace();
-            Write(node.Arguments[1]);
+            WriteDelegateArgument(node);
             WriteToken(")");
         }
 
@@ -1029,7 +1049,7 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
 
         public override void VisitSwitchStatement(SwitchStatement node)
         {
-            loopStates.Push(StatementState.Switch);
+            statementStates.Push(StatementState.Switch);
             WriteKeyword(KeyWordWriter.Switch);
             WriteSpace();
             WriteKeyword(KeyWordWriter.Case);
@@ -1041,7 +1061,7 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
             WriteBlock(() => VisitVBSwitchCases(node.Cases), "");
 
             WriteEndBlock(KeyWordWriter.Switch);
-            loopStates.Pop();
+            statementStates.Pop();
         }
 
         public override void VisitConditionCase(ConditionCase node)
@@ -1070,12 +1090,12 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
 
         public override void VisitForEachStatement(ForEachStatement node)
         {
-            loopStates.Push(StatementState.ForEach);
+            statementStates.Push(StatementState.ForEach);
             WriteKeyword(KeyWordWriter.ForEach);
             WriteSpace();
-            loopStates.Push(StatementState.ForEachInitializer);
+            statementStates.Push(StatementState.ForEachInitializer);
             Visit(node.Variable);
-            loopStates.Pop();
+            statementStates.Pop();
             WriteSpace();
             WriteKeyword(KeyWordWriter.In);
             WriteSpace();
@@ -1083,19 +1103,19 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
             WriteLine();
             Visit(node.Body);
             WriteKeyword(KeyWordWriter.Next);
-            loopStates.Pop();
+            statementStates.Pop();
         }
 
         public override void VisitWhileStatement(WhileStatement node)
         {
-            loopStates.Push(StatementState.While);
+            statementStates.Push(StatementState.While);
             base.VisitWhileStatement(node);
-            loopStates.Pop();
+            statementStates.Pop();
         }
 
         public override void VisitDoWhileStatement(DoWhileStatement node)
         {
-            loopStates.Push(StatementState.DoWhile);
+            statementStates.Push(StatementState.DoWhile);
             WriteKeyword(KeyWordWriter.Do);
             WriteLine();
             Visit(node.Body);
@@ -1103,7 +1123,7 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
             WriteSpace();
             WriteSpecialBetweenParenthesis(node.Condition);
             WriteEndOfStatement();
-            loopStates.Pop();
+            statementStates.Pop();
         }
 
         private string GetCastMethod(TypeReference type)
@@ -1116,6 +1136,8 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
                     return "CSng";
                 case "Byte":
                     return "CByte";
+                case "SByte":
+                    return "CSByte";
                 case "Char":
                     return "CChar";
                 case "Double":
@@ -1124,10 +1146,16 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
                     return "CBool";
                 case "Int16":
                     return "CShort";
+                case "UInt16":
+                    return "CUShort";
                 case "Int32":
                     return "CInt";
+                case "UInt32":
+                    return "CUInt";
                 case "Int64":
                     return "CLng";
+                case "UInt64":
+                    return "CULng";
                 case "String":
                     return "CStr";
                 case "Object":
@@ -1139,7 +1167,7 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
             }
         }
 
-        public override void VisitCastExpression(CastExpression node)
+        public override void VisitExplicitCastExpression(ExplicitCastExpression node)
         {
             var castMethod = GetCastMethod(node.TargetType);
             if (castMethod == null)
@@ -1170,7 +1198,7 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
             WriteToken(")");
         }
 
-        private void WriteCastExpression(CastExpression node)
+        private void WriteCastExpression(ExplicitCastExpression node)
         {
             bool isComplexCastTarget = IsComplexTarget(node.Expression);
 
@@ -1290,13 +1318,13 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
             {
                 return;
             }
-            loopStates.Push(StatementState.For);
+            statementStates.Push(StatementState.For);
             var forStep = GetForStep(incrementExpression);
             WriteKeyword("For");
             WriteSpace();
-            loopStates.Push(StatementState.ForEachInitializer);
+            statementStates.Push(StatementState.ForEachInitializer);
             Visit(node.Initializer);
-            loopStates.Pop();
+            statementStates.Pop();
             WriteSpace();
             WriteKeyword("To");
             WriteSpace();
@@ -1312,7 +1340,7 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
             Visit(node.Body);
             WriteKeyword(KeyWordWriter.Next);
             WriteLine();
-            loopStates.Pop();
+            statementStates.Pop();
         }
 
         private Expression GetForStep(Expression incrementExpression)
@@ -1345,12 +1373,12 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
                 var assingExpression = (BinaryExpression)incrementExpression;
 
 				BinaryExpression binaryExpression;
-				if (assingExpression.Right.CodeNodeType == CodeNodeType.CastExpression)
+				if (assingExpression.Right.CodeNodeType == CodeNodeType.ExplicitCastExpression)
 				{
-					CastExpression castExpression = assingExpression.Right as CastExpression;
-					while (castExpression.Expression.CodeNodeType == CodeNodeType.CastExpression)
+					ExplicitCastExpression castExpression = assingExpression.Right as ExplicitCastExpression;
+					while (castExpression.Expression.CodeNodeType == CodeNodeType.ExplicitCastExpression)
 					{
-						castExpression = castExpression.Expression as CastExpression;
+						castExpression = castExpression.Expression as ExplicitCastExpression;
 					}
 
 					binaryExpression = castExpression.Expression as BinaryExpression;
@@ -1383,41 +1411,50 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
         public override void VisitContinueStatement(ContinueStatement node)
         {
             WriteKeyword("Continue");
-            WriteLoopEnd();
+            WriteSpace();
+            WriteInnermostParentFrom(GetContinuableParents());
             //  WriteLine();
         }
 
-        private void WriteLoopEnd()
+        private Dictionary<StatementState, string> GetContinuableParents()
         {
-            if (loopStates.Count > 0)
+            return new Dictionary<StatementState, string>()
             {
-                WriteSpace();
-                var lastState = loopStates.Peek();
-                switch (lastState)
+                { StatementState.DoWhile, "Do" },
+                { StatementState.For, "For" },
+                { StatementState.ForEach, "For" },
+                { StatementState.While, "While" }
+            };
+        }
+
+        private Dictionary<StatementState, string> GetExitableParents()
+        {
+            return new Dictionary<StatementState, string>(GetContinuableParents())
+            {
+                { StatementState.Switch, "Select" }
+            };
+        }
+
+        private void WriteInnermostParentFrom(Dictionary<StatementState, string> parents)
+        {
+            foreach (StatementState state in this.statementStates)
+            {
+                if (parents.ContainsKey(state))
                 {
-                    case StatementState.For:
-                        WriteKeyword("For");
-                        break;
-                    case StatementState.ForEach:
-                        WriteKeyword("For");
-                        break;
-                    case StatementState.DoWhile:
-                        WriteKeyword("Do");
-                        break;
-                    case StatementState.While:
-                        WriteKeyword("While");
-                        break;
-                    case StatementState.Switch:
-                        WriteKeyword("Select");
-                        break;
+                    WriteKeyword(parents[state]);
+
+                    return;
                 }
             }
+
+            throw new Exception("Suitable parent for Continue/Exit statement not found.");
         }
 
         public override void VisitBreakStatement(BreakStatement node)
         {
             WriteKeyword("Exit");
-            WriteLoopEnd();
+            WriteSpace();
+            WriteInnermostParentFrom(GetExitableParents());
             //  WriteLine();
         }
 
@@ -1592,9 +1629,9 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
 
 				if (node.Variable != null)
 				{
-					loopStates.Push(StatementState.Catch);
+					statementStates.Push(StatementState.Catch);
 					Visit(node.Variable);
-					loopStates.Pop();
+					statementStates.Pop();
 				}
 				else
 				{
@@ -1618,9 +1655,9 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
         {
             WriteKeyword(KeyWordWriter.Using);
             WriteSpace();
-            loopStates.Push(StatementState.Using);
+            statementStates.Push(StatementState.Using);
             WriteSpecialBetweenParenthesis(node.Expression);
-            loopStates.Pop();
+            statementStates.Pop();
             WriteLine();
             Visit(node.Body);
             WriteSpecialEndBlock(KeyWordWriter.Using);
@@ -1774,7 +1811,7 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
             VariableDefinition variable = node.Variable;
             if (variable.VariableType.ContainsAnonymousType())
             {
-                WriteToken(GetVariableName(variable));
+                this.WriteAndMapVariableToCode(() => WriteToken(GetVariableName(variable)), node.Variable);
             }
             else
             {
@@ -1827,7 +1864,7 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
 			WriteDim();
 			
 			string variableName = GetVariableName(node.Variable.Variable);
-			Write(variableName);
+			this.WriteAndMapVariableToCode(() => Write(variableName), node.Variable.Variable);
 
             WriteArrayDimensions(node.Dimensions, node.ArrayType, node.HasInitializer);
 			WriteAsBetweenSpaces();
@@ -2011,16 +2048,6 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
 
         protected override void WriteMethodDeclaration(MethodDefinition method, bool writeDocumentation)
         {
-			foreach (ParameterDefinition parameter in method.Parameters)
-			{
-				if (parameter.IsOutParameter())
-				{
-					string paramName = GetParameterName(parameter);
-					WriteComment(String.Format("Parameter {0} is an \"out\" parameter, which is not supported in VisualBasic.", paramName));
-					WriteLine();
-				}
-			}
-
             bool hasModifierInSignature = false;
             if (method.ReturnType.IsOptionalModifier || method.ReturnType.IsRequiredModifier)
             {
@@ -2109,6 +2136,114 @@ namespace Telerik.JustDecompiler.Languages.VisualBasic
             }
 
             return base.WriteTypeDeclaration(type, isPartial);
+        }
+
+        public override void VisitMethodInvocationExpression(MethodInvocationExpression node)
+        {
+            GenericInstanceMethod genericMethod = node.MethodExpression.Method as GenericInstanceMethod;
+            if (node.MethodExpression.Method.HasThis ||
+                node.Arguments.Count == 0 ||
+                genericMethod == null ||
+                node.MethodExpression.MethodDefinition == null ||
+                !node.MethodExpression.MethodDefinition.IsExtensionMethod)
+            {
+                base.VisitMethodInvocationExpression(node);
+
+                return;
+            }
+
+            WriteMethodTarget(node.Arguments[0]);
+            WriteGenericInstanceMethodWithArguments(genericMethod, GetGenericExtensionMethodArguments(genericMethod));
+            WriteToken("(");
+            VisitExtensionMethodParameters(node.Arguments);
+            WriteToken(")");
+        }
+
+        private Collection<TypeReference> GetGenericExtensionMethodArguments(GenericInstanceMethod genericMethod)
+        {
+            TypeReference extendedType = genericMethod.ElementMethod.Parameters[0].ParameterType;
+            if (!extendedType.IsGenericInstance && !extendedType.IsGenericParameter)
+            {
+                return genericMethod.GenericArguments;
+            }
+
+            HashSet<GenericParameter> extendedTypeGenericParameters = new HashSet<GenericParameter>();
+            if (extendedType.IsGenericInstance)
+            {
+                Queue<GenericInstanceType> queue = new Queue<GenericInstanceType>();
+                queue.Enqueue(extendedType as GenericInstanceType);
+                while (queue.Count > 0)
+                {
+                    GenericInstanceType current = queue.Dequeue();
+                    foreach (TypeReference genericArgument in current.GenericArguments)
+                    {
+                        if (genericArgument.IsGenericInstance)
+                        {
+                            queue.Enqueue(genericArgument as GenericInstanceType);
+                        }
+                        else if (genericArgument.IsGenericParameter)
+                        {
+                            extendedTypeGenericParameters.Add(genericArgument as GenericParameter);
+                        }
+                    }
+                }
+            }
+            else
+            {
+                // GenericParameter
+                extendedTypeGenericParameters.Add(extendedType as GenericParameter);
+            }
+
+            Collection<TypeReference> result = new Collection<TypeReference>();
+            for (int i = 0; i < genericMethod.ElementMethod.GenericParameters.Count; i++)
+            {
+                GenericParameter currentGenericParameter = genericMethod.ElementMethod.GenericParameters[i];
+                if (!extendedTypeGenericParameters.Contains(currentGenericParameter))
+                {
+                    result.Add(genericMethod.GenericArguments[i]);
+                }
+            }
+
+            return result;
+        }
+
+        public override void VisitPropertyReferenceExpression(PropertyReferenceExpression node)
+        {
+            if (node.Target != null &&
+                node.Target.CodeNodeType == CodeNodeType.BaseReferenceExpression &&
+                node.IsIndexer)
+            {
+                Visit(node.Target);
+                WriteToken(".");
+                WritePropertyName(node.Property);
+                WriteIndexerArguments(node);
+            }
+            else
+            {
+                base.VisitPropertyReferenceExpression(node);
+            }
+        }
+
+        /// <summary>
+        /// Gets the type string for given type reference. If the type string is a system type and it's in collision with
+        /// some keyword, it's escaped.
+        /// </summary>
+        internal override string ToEscapedTypeString(TypeReference reference)
+        {
+            if (IsReferenceFromMscorlib(reference))
+            {
+                string typeString = ToTypeString(reference);
+                if (typeString == "Enum" || typeString == "Delegate")
+                {
+                    typeString = Utilities.Escape(typeString, this.Language);
+                }
+
+                return typeString;
+            }
+            else
+            {
+                return ToTypeString(reference);
+            }
         }
     }
 

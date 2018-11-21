@@ -11,25 +11,45 @@ namespace Telerik.JustDecompiler.Languages
     {
         private class VisualBasicV10 : VisualBasic, IVisualBasic
         {
-            public VisualBasicV10()
+            private static VisualBasicV10 instance;
+
+            static VisualBasicV10()
             {
+                instance = new VisualBasicV10();
+            }
+
+            protected VisualBasicV10()
+            {
+                // Keywords are taken from https://msdn.microsoft.com/en-us/library/dd409611(v=vs.140).aspx
+                // The Out keyword is not added on purpose. That's because, we succeded to use it as identifier and the compiler
+                // doesn't display error. If you add it, there will be many changes linked to the use of the OutAttribute.
                 string[] GlobalKeywords =
                 {
-                    "AddHandler","AddressOf","Alias","And","AndAlso","Ansi","As","Assembly","Auto","Boolean","ByRef","Byte","ByVal","Call","Case","Catch",
-                    "CBool","CByte","CChar","CDate","CDec","CDbl","Char","CInt","Class","CLng","CObj","Const","CShort","CSng","CStr","CType","Date",
-                    "Decimal","Declare","Default","Delegate","Dim","DirectCast","Do","Double","Each","Else","ElseIf","End","Enum","Erase","Error","Event",
-                    "Exit","False","Finally","For","Friend","Function","Get","GetType","GoSub","GoTo","Handles","If","Implements","Imports","In","Inherits",
-                    "Integer","Interface","Is","Let","Lib","Like","Long","Loop","Me","Mod","Module","MustInherit","MustOverride","MyBase","MyClass",
-                    "Namespace","New","Next","Not","Nothing","NotInheritable","NotOverridable","Object","On","Option","Optional","Or","OrElse","Overloads",
-                    "Overridable","Overrides","ParamArray","Preserve","Private","Property","Protected","Public","RaiseEvent","ReadOnly","ReDim","REM",
-                    "RemoveHandler","Resume","Return","Select","Set","Shadows","Shared","Short","Single","Static","Step","Stop","String","Structure","Sub",
-                    "SyncLock","Then","Throw","To","True","Try","TypeOf","Unicode","Until","Variant","When","While","With","WithEvents","WriteOnly","Xor",
-                    "#Const","#ExternalSource","#If","Then","#Else","#Region"
+                    "AddHandler","AddressOf","Alias","And","AndAlso","As","Boolean","ByRef","Byte","ByVal","Call","Case","Catch","CBool",
+                    "CByte","CChar","CDate","CDbl","CDec","Char","CInt","Class","CLng","CObj","Const","Continue","CSByte","CShort","CSng",
+                    "CStr","CType","CUInt","CULng","CUShort","Date","Decimal","Declare","Default","Delegate","Dim","DirectCast","Do",
+                    "Double","Each","Else","ElseIf","End","EndIf","Enum","Erase","Error","Event","Exit","False","Finally","For","Friend",
+                    "Function","Get","GetType","GetXMLNamespace","Global","GoSub","GoTo","Handles","If","Implements","Imports","In",
+                    "Inherits","Integer","Interface","Is","IsNot","Let","Lib","Like","Long","Loop","Me","Mod","Module","MustInherit",
+                    "MustOverride","MyBase","MyClass","Namespace","Narrowing","New","Next","Not","Nothing","NotInheritable",
+                    "NotOverridable","Object","Of","On","Operator","Option","Optional","Or","OrElse","Overloads","Overridable","Overrides",
+                    "ParamArray","Partial","Private","Property","Protected","Public","RaiseEvent","ReadOnly","ReDim","REM","RemoveHandler",
+                    "Resume","Return","SByte","Select","Set","Shadows","Shared","Short","Single","Static","Step","Stop","String",
+                    "Structure","Sub","SyncLock","Then","Throw","To","True","Try","TryCast","TypeOf","UInteger","ULong","UShort","Using",
+                    "Variant","Wend","When","While","Widening","With","WithEvents","WriteOnly","Xor","#Const","#Else","#ElseIf","#End","#If"
                 };
 
                 foreach (string word in GlobalKeywords)
                 {
                     this.languageSpecificGlobalKeywords.Add(word);
+                }
+            }
+
+            new public static VisualBasicV10 Instance
+            {
+                get
+                {
+                    return instance;
                 }
             }
 
@@ -50,20 +70,18 @@ namespace Telerik.JustDecompiler.Languages
                 }
             }
             
-            internal override IDecompilationStep[] LanguageDecompilationSteps(MethodDefinition method, bool inlineAggressively)
+            internal override IDecompilationStep[] LanguageDecompilationSteps(bool inlineAggressively)
             {
                 return new IDecompilationStep[]
                 {
-                    new TotalGotoEliminationStep(),
-                    new AfterGotoCleanupStep(),
                     new RebuildAsyncStatementsStep(),
-                    new RebuildYieldStatementsStep() { Language = this },
-                    new RemoveDelegateCaching(),
+                    new RebuildYieldStatementsStep(),
+                    new VisualBasicRemoveDelegateCachingStep(),
                     // RebuildAnonymousDelegatesStep needs to be executed before the RebuildLambdaExpressions step
-                    new RebuildAnonymousDelegatesStep() { Language = this },
-                    new RebuildLambdaExpressions() { Language = this, Method = method },
-
-                    new CombinedTransformerStep() { Language = this, Method = method },
+                    new RebuildAnonymousDelegatesStep(),
+                    new RebuildLambdaExpressions(),
+                    new GotoCancelation(),
+                    new CombinedTransformerStep(),
                     // new RemoveConditionOnlyVariables(),
                     new MergeUnaryAndBinaryExpression(),
                     new RemoveLastReturn(),
@@ -80,23 +98,26 @@ namespace Telerik.JustDecompiler.Languages
                     new DetermineCtorInvocationStep(),
                     new RebuildExpressionTreesStep(),
                     new TransformMemberHandlersStep(),
-                    new VBCodePatternsStep(inlineAggressively) { Language = this },
+                    // There were a lot of issues when trying to merge the SelfAssignment step with the CombinedTransformerStep.
+                    // The SelfAssignment step is moved before VBCodePatternsStep in order to enable the VariableInliningPattern
+                    // to try to inline expressions composed in the SelfAssignment step.
+                    new VBSelfAssignment(),
+                    new VBCodePatternsStep(inlineAggressively),
                     // TransformCatchClausesFilterExpressionStep needs to be after VBCodePatternsStep,
                     // because it works only if the TernaryConditionPattern has been applied.
                     new TransformCatchClausesFilterExpressionStep(),
                     new DeduceImplicitDelegates(),
                     new CreateIfElseIfStatementsStep(),
+                    new CreateCompilerOptimizedSwitchByStringStatementsStep(),
                     new ParenthesizeExpressionsStep(),
-                    new RemoveUnusedVariablesStep(),
+                    new VisualBasicRemoveUnusedVariablesStep(),
                     // RebuildCatchClausesFilterStep needs to be before DeclareVariablesOnFirstAssignment and after RemoveUnusedVariablesStep.
                     // RebuildCatchClausesFilterStep contains pattern matching and need to be after TransformCatchClausesFilterExpressionStep.
-                    new RebuildCatchClausesFilterStep() { Language = this },
+                    new RebuildCatchClausesFilterStep(),
                     new DeclareVariablesOnFirstAssignment(),
                     new DeclareTopLevelVariables(),
-                    // There were a lot of issues when trying to merge the SelfAssignment step with the CombinedTransformerStep.
-                    new SelfAssignement(),
                     new RenameSplitPropertiesMethodsAndBackingFields(),
-                    new RenameVBVariables() { Language = this },
+                    new RenameVBVariables(),
                     new CastEnumsToIntegersStep(),
                     new CastIntegersStep(),
                     new ArrayVariablesStep(),
@@ -107,16 +128,14 @@ namespace Telerik.JustDecompiler.Languages
                 };
             }
 
-            protected override IDecompilationStep[] LanguageFilterMethodDecompilationSteps(MethodDefinition method, bool inlineAggressively)
+            protected override IDecompilationStep[] LanguageFilterMethodDecompilationSteps(bool inlineAggressively)
             {
                 return new IDecompilationStep[]
                 {
                     new DeclareVariablesOnFirstAssignment(),
                     new DeclareTopLevelVariables(),
-                    // There were a lot of issues when trying to merge the SelfAssignment step with the CombinedTransformerStep.
-                    new SelfAssignement(),
                     new RenameSplitPropertiesMethodsAndBackingFields(),
-                    new RenameVBVariables() { Language = this },
+                    new RenameVBVariables(),
                     new CastEnumsToIntegersStep(),
                     new CastIntegersStep(),
                     new ArrayVariablesStep(),

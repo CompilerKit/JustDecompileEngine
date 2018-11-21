@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using Mono.Cecil.AssemblyResolver;
 using JustDecompile.SmartAssembly.Attributes;
 using Telerik.JustDecompiler.Common.NamespaceHierarchy;
 
@@ -41,7 +42,9 @@ namespace Mono.Cecil.Extensions
 
 			AssemblyNameReference assemblyRef = self.ReferencedMscorlibRef();
             IAssemblyResolver resolver = self.AssemblyResolver;
-			AssemblyDefinition a = resolver.Resolve(assemblyRef,"",self.GetModuleArchitecture());
+
+            SpecialTypeAssembly special = self.IsReferenceAssembly() ? SpecialTypeAssembly.Reference : SpecialTypeAssembly.None;
+            AssemblyDefinition a = resolver.Resolve(assemblyRef,"",self.GetModuleArchitecture(), special);
 			if (a != null)
 			{
 				return a.MainModule;
@@ -52,48 +55,30 @@ namespace Mono.Cecil.Extensions
 
 		public static AssemblyNameReference ReferencedMscorlibRef(this ModuleDefinition self)
 		{
-			if (self == null)
-			{
-				throw new ArgumentNullException("Module definition is null.");
-			}
-
-			if (self.Assembly.Name.Name == "mscorlib")
-			{
-				return self.Assembly.Name;
-			}
-
-			foreach (AssemblyNameReference assemblyRef in self.AssemblyReferences)
-			{
-				if (assemblyRef.Name == "mscorlib")
-				{
-					return assemblyRef;
-				}
-			}
-
-			return null;
+            return self.GetReferencedCoreLibraryRef("mscorlib");
 		}
 
-		public static AssemblyNameReference ReferencedSystemRuntimeRef(this ModuleDefinition self)
-		{
-			if (self == null)
-			{
-				throw new ArgumentNullException("Module definition is null.");
-			}
+        public static AssemblyNameReference GetReferencedCoreLibraryRef(this ModuleDefinition self, string coreLibraryName)
+        {
+            if (self == null)
+            {
+                throw new ArgumentNullException("Module definition is null.");
+            }
 
-			if (self.Assembly.Name.Name == "System.Runtime")
-			{
-				return self.Assembly.Name;
-			}
+            if (self.Assembly.Name.Name == coreLibraryName)
+            {
+                return self.Assembly.Name;
+            }
 
-			foreach (AssemblyNameReference assemblyRef in self.AssemblyReferences)
-			{
-				if (assemblyRef.Name == "System.Runtime")
-				{
-					return assemblyRef;
-				}
-			}
+            foreach (AssemblyNameReference assemblyRef in self.AssemblyReferences)
+            {
+                if (assemblyRef.Name == coreLibraryName)
+                {
+                    return assemblyRef;
+                }
+            }
 
-			return null;
-		}
-	}
+            return null;
+        }
+    }
 }

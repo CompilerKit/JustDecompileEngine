@@ -12,6 +12,25 @@ namespace Telerik.JustDecompiler.Languages
     {
         private class CSharpV6 : CSharpV5, ICSharp
         {
+            private static CSharpV6 instance;
+
+            static CSharpV6()
+            {
+                instance = new CSharpV6();
+            }
+
+            protected CSharpV6()
+            {
+            }
+
+            new public static CSharpV6 Instance
+            {
+                get
+                {
+                    return instance;
+                }
+            }
+
             public override int Version
             {
                 get
@@ -44,20 +63,20 @@ namespace Telerik.JustDecompiler.Languages
                 }
             }
             
-            internal override IDecompilationStep[] LanguageDecompilationSteps(MethodDefinition method, bool inlineAggressively)
+            internal override IDecompilationStep[] LanguageDecompilationSteps(bool inlineAggressively)
             {
                 return new IDecompilationStep[]
                 {
                     new OutParameterAssignmentAnalysisStep(),
                     new RebuildAsyncStatementsStep(),
-                    new RebuildYieldStatementsStep() { Language = this },
-                    new RemoveDelegateCaching(),
+                    new RebuildYieldStatementsStep(),
+                    new RemoveDelegateCachingStep(),
                     // RebuildAnonymousDelegatesStep needs to be executed before the RebuildLambdaExpressions step
-                    new RebuildAnonymousDelegatesStep() { Language = this },
-                    new RebuildLambdaExpressions() { Language = this, Method = method },
+                    new RebuildAnonymousDelegatesStep(),
+                    new RebuildLambdaExpressions(),
                     new ResolveDynamicVariablesStep(),
                     new GotoCancelation(),
-                    new CombinedTransformerStep() { Language = this, Method = method },
+                    new CombinedTransformerStep(),
                     new MergeUnaryAndBinaryExpression(),
                     new RemoveLastReturn(),
                     new RebuildSwitchByString(),
@@ -71,7 +90,11 @@ namespace Telerik.JustDecompiler.Languages
                     new FixMethodOverloadsStep(),
                     new RebuildExpressionTreesStep(),
                     new TransformMemberHandlersStep(),
-                    new CodePatternsStep(inlineAggressively) { Language = this },
+                    // There were a lot of issues when trying to merge the SelfAssignment step with the CombinedTransformerStep.
+                    // The SelfAssignment step is moved before CodePatternsStep in order to enable the VariableInliningPattern
+                    // to try to inline expressions composed in the SelfAssignment step.
+                    new SelfAssignment(),
+                    new CodePatternsStep(inlineAggressively),
                     // TransformCatchClausesFilterExpressionStep needs to be after CodePatternsStep,
                     // because it works only if the TernaryConditionPattern has been applied.
                     new TransformCatchClausesFilterExpressionStep(),
@@ -79,18 +102,17 @@ namespace Telerik.JustDecompiler.Languages
                     new DeduceImplicitDelegates(),
                     new RebuildLinqQueriesStep(),
                     new CreateIfElseIfStatementsStep(),
+                    new CreateCompilerOptimizedSwitchByStringStatementsStep(),
                     new ParenthesizeExpressionsStep(),
                     new RemoveUnusedVariablesStep(),
                     // RebuildCatchClausesFilterStep needs to be before DeclareVariablesOnFirstAssignment and after RemoveUnusedVariablesStep.
                     // RebuildCatchClausesFilterStep contains pattern matching and need to be after TransformCatchClausesFilterExpressionStep.
-                    new RebuildCatchClausesFilterStep() { Language = this },
+                    new RebuildCatchClausesFilterStep(),
                     new DeclareVariablesOnFirstAssignment(),
                     new DeclareTopLevelVariables(),
                     new AssignOutParametersStep(),
-                    // There were a lot of issues when trying to merge the SelfAssignment step with the CombinedTransformerStep.
-                    new SelfAssignement(),
                     new RenameSplitPropertiesMethodsAndBackingFields(),
-                    new RenameVariables() { Language = this },
+                    new RenameVariables(),
                     new CastEnumsToIntegersStep(),
                     new CastIntegersStep(),
                     new ArrayVariablesStep(),
@@ -102,17 +124,15 @@ namespace Telerik.JustDecompiler.Languages
                 };
             }
 
-            protected override IDecompilationStep[] LanguageFilterMethodDecompilationSteps(MethodDefinition method, bool inlineAggressively)
+            protected override IDecompilationStep[] LanguageFilterMethodDecompilationSteps(bool inlineAggressively)
             {
                 return new IDecompilationStep[]
                 {
                     new DeclareVariablesOnFirstAssignment(),
                     new DeclareTopLevelVariables(),
                     new AssignOutParametersStep(),
-                    // There were a lot of issues when trying to merge the SelfAssignment step with the CombinedTransformerStep.
-                    new SelfAssignement(),
                     new RenameSplitPropertiesMethodsAndBackingFields(),
-                    new RenameVariables() { Language = this },
+                    new RenameVariables(),
                     new CastEnumsToIntegersStep(),
                     new CastIntegersStep(),
                     new ArrayVariablesStep(),

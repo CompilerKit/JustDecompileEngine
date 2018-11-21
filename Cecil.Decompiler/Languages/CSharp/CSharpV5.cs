@@ -10,7 +10,14 @@ namespace Telerik.JustDecompiler.Languages
     {
         private class CSharpV5 : CSharp, ICSharp
         {
-            public CSharpV5()
+            private static CSharpV5 instance;
+
+            static CSharpV5()
+            {
+                instance = new CSharpV5();
+            }
+
+            protected CSharpV5()
             {
                 //list taken from http://msdn.microsoft.com/en-us/library/x53a06bb.aspx -> MSDN list of C# keywords
 
@@ -41,6 +48,14 @@ namespace Telerik.JustDecompiler.Languages
                 }
             }
 
+            new public static CSharpV5 Instance
+            {
+                get
+                {
+                    return instance;
+                }
+            }
+
             public override int Version
             {
                 get
@@ -48,21 +63,21 @@ namespace Telerik.JustDecompiler.Languages
                     return 5;
                 }
             }
-
-            internal override IDecompilationStep[] LanguageDecompilationSteps(MethodDefinition method, bool inlineAggressively)
+            
+            internal override IDecompilationStep[] LanguageDecompilationSteps(bool inlineAggressively)
             {
                 return new IDecompilationStep[]
                 {
                     new OutParameterAssignmentAnalysisStep(),
                     new RebuildAsyncStatementsStep(),
-                    new RebuildYieldStatementsStep() { Language = this },
-                    new RemoveDelegateCaching(),
+                    new RebuildYieldStatementsStep(),
+                    new RemoveDelegateCachingStep(),
                     // RebuildAnonymousDelegatesStep needs to be executed before the RebuildLambdaExpressions step
-                    new RebuildAnonymousDelegatesStep() { Language = this },
-                    new RebuildLambdaExpressions() { Language = this, Method = method },
+                    new RebuildAnonymousDelegatesStep(),
+                    new RebuildLambdaExpressions(),
                     new ResolveDynamicVariablesStep(),
                     new GotoCancelation(),
-                    new CombinedTransformerStep() { Language = this, Method = method },
+                    new CombinedTransformerStep(),
                     new MergeUnaryAndBinaryExpression(),
                     new RemoveLastReturn(),
                     new RebuildSwitchByString(),
@@ -76,20 +91,23 @@ namespace Telerik.JustDecompiler.Languages
                     new FixMethodOverloadsStep(),
                     new RebuildExpressionTreesStep(),
                     new TransformMemberHandlersStep(),
-                    new CodePatternsStep(inlineAggressively) { Language = this },
+                    // There were a lot of issues when trying to merge the SelfAssignment step with the CombinedTransformerStep.
+                    // The SelfAssignment step is moved before CodePatternsStep in order to enable the VariableInliningPattern
+                    // to try to inline expressions composed in the SelfAssignment step.
+                    new SelfAssignment(),
+                    new CodePatternsStep(inlineAggressively),
                     new DetermineCtorInvocationStep(),
                     new DeduceImplicitDelegates(),
                     new RebuildLinqQueriesStep(),
                     new CreateIfElseIfStatementsStep(),
+                    new CreateCompilerOptimizedSwitchByStringStatementsStep(),
                     new ParenthesizeExpressionsStep(),
                     new RemoveUnusedVariablesStep(),
                     new DeclareVariablesOnFirstAssignment(),
                     new DeclareTopLevelVariables(),
                     new AssignOutParametersStep(),
-                    // There were a lot of issues when trying to merge the SelfAssignment step with the CombinedTransformerStep.
-                    new SelfAssignement(),
                     new RenameSplitPropertiesMethodsAndBackingFields(),
-                    new RenameVariables() { Language = this },
+                    new RenameVariables(),
                     new CastEnumsToIntegersStep(),
                     new CastIntegersStep(),
                     new ArrayVariablesStep(),

@@ -100,7 +100,18 @@ namespace Telerik.JustDecompiler.Steps
 
             this.context.MethodContext.VariablesToNotDeclare.Add(variableDeclaration.Variable);
 
-            node.Variable = variableDeclaration;
+            // If the pattern matches then there is no additional method and the variable declaration is used as is.
+            // If the pattern doesn't match - we use the expressions only, because if we don't, the result is
+            // two expressions (one in the catch variable and one in the generated method) with the same instructions.
+            if (matchSucceed)
+            {
+                node.Variable = variableDeclaration;
+            }
+            else
+            {
+                node.Variable = variableDeclaration.CloneExpressionOnly() as VariableDeclarationExpression;
+            }
+
             node.Type = variableDeclaration.ExpressionType;
             node.Filter = new ExpressionStatement(filterExpression);
 
@@ -113,8 +124,8 @@ namespace Telerik.JustDecompiler.Steps
             {
                 AddVariablesToNotDeclare(method.Context, method.CatchClause);
 
-                BlockDecompilationPipeline pipeline = Language.CreateFilterMethodPipeline(method.Method, method.Context);
-                DecompilationContext innerContext = pipeline.Run(method.Method.Body, method.Block, Language);
+                BlockDecompilationPipeline pipeline = this.context.Language.CreateFilterMethodPipeline(method.Context);
+                DecompilationContext innerContext = pipeline.Run(method.Method.Body, method.Block, this.context.Language);
                 this.context.TypeContext.GeneratedFilterMethods.Add(new GeneratedMethod(method.Method, pipeline.Body, innerContext.MethodContext));
                 this.context.TypeContext.GeneratedMethodDefinitionToNameMap.Add(method.Method, method.Method.Name);
 
@@ -182,7 +193,7 @@ namespace Telerik.JustDecompiler.Steps
             method.SemanticsAttributes = MethodSemanticsAttributes.None;
             method.IsJustDecompileGenerated = true;
 
-            DecompilationContext newContext = new DecompilationContext(CloneAndReplaceMethodBody(this.context.MethodContext, method.Body), this.context.TypeContext);
+            DecompilationContext newContext = new DecompilationContext(CloneAndReplaceMethodBody(this.context.MethodContext, method.Body), this.context.TypeContext, this.context.Language);
 
             VariableDefinition variableDefinition = variableReference.Variable.Resolve();
             if (!newContext.MethodContext.VariableDefinitionToNameMap.ContainsKey(variableDefinition))
@@ -234,7 +245,8 @@ namespace Telerik.JustDecompiler.Steps
                 context.DestructorStatements,
                 new HashSet<VariableDefinition>(context.UndeclaredLinqVariables),
                 new Dictionary<VariableReference, Dictionary<FieldDefinition, Expression>>(context.ClosureVariableToFieldValue),
-                new HashSet<VariableDefinition>(context.VariablesToNotDeclare));
+                new HashSet<VariableDefinition>(context.VariablesToNotDeclare),
+                context.SwitchByStringData.Clone() as CompilerOptimizedSwitchByStringData);
         }
 
         /// <summary>

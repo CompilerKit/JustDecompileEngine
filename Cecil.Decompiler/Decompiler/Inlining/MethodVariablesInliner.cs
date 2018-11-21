@@ -8,11 +8,11 @@ using Telerik.JustDecompiler.Ast.Expressions;
 
 namespace Telerik.JustDecompiler.Decompiler.Inlining
 {
-    class MethodVariablesInliningStep : BaseVariableInliningStep
+    class MethodVariablesInliner : BaseVariablesInliner
     {
         protected override void FindSingleDefineSingleUseVariables()
         {
-            SingleDefineSingleUseFinder finder = new SingleDefineSingleUseFinder();
+            SingleDefineSingleUseFinder finder = new SingleDefineSingleUseFinder(this.variablesToNotInline);
             foreach (IList<Expression> blockExpressions in methodContext.Expressions.BlockExpressions.Values)
             {
                 finder.VisitExpressionsInBlock(blockExpressions);
@@ -21,16 +21,16 @@ namespace Telerik.JustDecompiler.Decompiler.Inlining
             variablesToInline.UnionWith(finder.SingleDefineSingleUsageVariables);
         }
 
-        public MethodVariablesInliningStep(MethodSpecificContext methodContext)
-            : base(methodContext, new RestrictedVariableInliner(methodContext.Method.Module.TypeSystem))
+        public MethodVariablesInliner(MethodSpecificContext methodContext, IVariablesToNotInlineFinder finder)
+            : base(methodContext, new RestrictedVariableInliner(methodContext.Method.Module.TypeSystem), finder)
         {
         }
 
         private bool IsEnumeratorGetCurrent(Expression expression)
         {
-            if (expression.CodeNodeType == CodeNodeType.CastExpression)
+            if (expression.CodeNodeType == CodeNodeType.ExplicitCastExpression)
             {
-                expression = (expression as CastExpression).Expression;
+                expression = (expression as ExplicitCastExpression).Expression;
             }
 
             return expression.CodeNodeType == CodeNodeType.MethodInvocationExpression && (expression as MethodInvocationExpression).MethodExpression.Method.Name == "get_Current";
@@ -104,8 +104,9 @@ namespace Telerik.JustDecompiler.Decompiler.Inlining
             private readonly HashSet<VariableDefinition> singleUsageVariables = new HashSet<VariableDefinition>();
             private readonly HashSet<VariableDefinition> bannedVariables = new HashSet<VariableDefinition>();
 
-            public SingleDefineSingleUseFinder()
+            public SingleDefineSingleUseFinder(HashSet<VariableDefinition> variablesToNotInline)
             {
+                this.bannedVariables.UnionWith(variablesToNotInline);
             }
 
             public HashSet<VariableDefinition> SingleDefineSingleUsageVariables

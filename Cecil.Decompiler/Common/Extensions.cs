@@ -3,7 +3,7 @@ using System.Globalization;
 using System.Collections.Generic;
 using System.Linq;
 using Mono.Cecil;
-using Telerik.JustDecompiler.External;
+using Mono.Cecil.AssemblyResolver;
 
 namespace Telerik.JustDecompiler.Common
 {
@@ -180,20 +180,49 @@ namespace Telerik.JustDecompiler.Common
                 case FrameworkVersion.v4_6_1:
                     result = "4.6.1";
                     break;
-                case FrameworkVersion.NetPortableV4_6:
+                case FrameworkVersion.v4_6_2:
+                    result = "4.6.2";
+                    break;
+				case FrameworkVersion.v4_7:
+					result = "4.7";
+					break;
+				case FrameworkVersion.v4_7_1:
+					result = "4.7.1";
+					break;
+                case FrameworkVersion.NetPortableV4_0:
+                    result = ".NETPortable v4.0";
+                    break;
+                case FrameworkVersion.NetPortableV4_5:
+					result = ".NETPortable v4.5";
+					break;
+				case FrameworkVersion.NetPortableV4_6:
                     result = ".NETPortable v4.6";
                     break;
-                case FrameworkVersion.NetCoreV4_5:
-                    result = ".NETCore v4.5";
+                case FrameworkVersion.NetPortableV5_0:
+                    result = ".NETPortable v5.0";
                     break;
-                case FrameworkVersion.NetCoreV4_5_1:
-                    result = ".NETCore v4.5.1";
+                case FrameworkVersion.WinRT_4_5:
+                    result = "WinRT - 4.5";
                     break;
-                case FrameworkVersion.NetCoreV5_0:
-                    result = ".NETCore v5.0";
+                case FrameworkVersion.WinRT_4_5_1:
+                    result = "WinRT - 4.5.1";
                     break;
-                case FrameworkVersion.WinRT:
-                case FrameworkVersion.Silverlight:
+                case FrameworkVersion.UWP:
+                    result = "UWP";
+                    break;
+				case FrameworkVersion.NetCoreV2_1:
+					result = "netcoreapp2.1";
+					break;
+				case FrameworkVersion.NetCoreV2_0:
+					result = "netcoreapp2.0";
+					break;
+				case FrameworkVersion.NetCoreV1_1:
+					result = "netcoreapp1.1";
+					break;
+				case FrameworkVersion.NetCoreV1_0:
+					result = "netcoreapp1.0";
+					break;
+				case FrameworkVersion.Silverlight:
                 case FrameworkVersion.WindowsCE:
                 case FrameworkVersion.WindowsPhone:
                     return self.ToString();

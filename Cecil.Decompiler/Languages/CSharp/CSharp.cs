@@ -30,6 +30,8 @@ using System.Collections.Generic;
 using Telerik.JustDecompiler.Decompiler;
 using Telerik.JustDecompiler.Languages.CSharp;
 using Telerik.JustDecompiler.Steps;
+using Telerik.JustDecompiler.Decompiler.Inlining;
+using Telerik.JustDecompiler.Ast;
 
 namespace Telerik.JustDecompiler.Languages
 {
@@ -37,12 +39,27 @@ namespace Telerik.JustDecompiler.Languages
     {
         private class CSharp : BaseLanguage, ICSharp
         {
+            private static CSharp instance;
+
             private Dictionary<string, string> operators;
 
-            public CSharp()
+            static CSharp()
+            {
+                instance = new CSharp();
+            }
+
+            protected CSharp()
             {
                 this.operators = new Dictionary<string, string>();
                 InitializeOperators();
+            }
+
+            public static CSharp Instance
+            {
+                get
+                {
+                    return instance;
+                }
             }
 
             private void InitializeOperators()
@@ -140,17 +157,17 @@ namespace Telerik.JustDecompiler.Languages
                 get { return "///"; }
             }
 
-            public override ILanguageWriter GetWriter(IFormatter formatter, IExceptionFormatter exceptionFormatter, bool writeExceptionsAsComments)
+            public override ILanguageWriter GetWriter(IFormatter formatter, IExceptionFormatter exceptionFormatter, IWriterSettings settings)
             {
-                return new CSharpWriter(this, formatter, exceptionFormatter, writeExceptionsAsComments);
+                return new CSharpWriter(this, formatter, exceptionFormatter, settings);
             }
 
-            public override IAssemblyAttributeWriter GetAssemblyAttributeWriter(IFormatter formatter, IExceptionFormatter exceptionFormatter, bool writeExceptionsAsComments)
+            public override IAssemblyAttributeWriter GetAssemblyAttributeWriter(IFormatter formatter, IExceptionFormatter exceptionFormatter, IWriterSettings settings)
             {
-                return new CSharpAssemblyAttributeWriter(this, formatter, exceptionFormatter, writeExceptionsAsComments);
+                return new CSharpAssemblyAttributeWriter(this, formatter, exceptionFormatter, settings);
             }
 
-                protected override bool IsLanguageKeyword(string word, HashSet<string> globalKeywords, HashSet<string> contextKeywords)
+            protected override bool IsLanguageKeyword(string word, HashSet<string> globalKeywords, HashSet<string> contextKeywords)
             {
                     bool result = globalKeywords.Contains(word) || contextKeywords.Contains(word);
                     return result;
@@ -177,6 +194,20 @@ namespace Telerik.JustDecompiler.Languages
                 return result;
             }
 
+            public override bool IsValidLineStarter(CodeNodeType nodeType)
+            {
+                // As far as we know, basically all nodes can be line starters.
+                return true;
+            }
+
+            public override IVariablesToNotInlineFinder VariablesToNotInlineFinder
+            {
+                get
+                {
+                    return new EmptyVariablesToNotInlineFinder();
+                }
+            }
+
             public override bool SupportsGetterOnlyAutoProperties
             {
                 get
@@ -200,6 +231,32 @@ namespace Telerik.JustDecompiler.Languages
                     return false;
                 }
             }
+
+            public override bool HasDelegateSpecificSyntax
+            {
+                get
+                {
+                    return true;
+                }
+            }
+
+			public override HashSet<string> AttributesToHide
+			{
+				get
+				{
+					string[] attributesToHide = new string[] { "System.ParamArrayAttribute",
+															   "System.Runtime.CompilerServices.IteratorStateMachineAttribute",
+															   "Microsoft.VisualBasic.CompilerServices.StandardModuleAttribute",
+															   "Windows.Foundation.Metadata.ActivatableAttribute",
+															   "System.Runtime.CompilerServices.DynamicAttribute",
+															   "System.Runtime.CompilerServices.ExtensionAttribute",
+															   "System.Diagnostics.DebuggerStepThroughAttribute",
+															   "System.Runtime.CompilerServices.AsyncStateMachineAttribute",
+															   "System.Runtime.CompilerServices.CompilerGeneratedAttribute" };
+
+					return new HashSet<string>(attributesToHide);
+				}
+			}
         }
     }
 }

@@ -41,25 +41,13 @@ namespace Telerik.JustDecompiler.Ast
 	{
 		private long visitsOnStack = 0;
 
-		public virtual ILanguage Language
-		{
-			get;
-			set;
-		}
-
-		public virtual MethodDefinition Method
-		{
-			get;
-			set;
-		}
-
 		public virtual void Visit(ICodeNode node)
 		{
 			visitsOnStack++;
 
 			//A good place to watch for StackOverFlowException. That one cannot be effectively caught and results in app crash.
 			//We replace it with our own custom exception here before it occurs. The number of allowed stack frames
-			//i chosen empirically
+			//is chosen empirically
 			if (visitsOnStack == 600)
 			{
 				visitsOnStack = 0;
@@ -170,10 +158,13 @@ namespace Telerik.JustDecompiler.Ast
 				case CodeNodeType.FieldReferenceExpression:
 					VisitFieldReferenceExpression((FieldReferenceExpression)node);
 					break;
-				case CodeNodeType.CastExpression:
-					VisitCastExpression((CastExpression)node);
+				case CodeNodeType.ExplicitCastExpression:
+                    VisitExplicitCastExpression((ExplicitCastExpression)node);
 					break;
-				case CodeNodeType.SafeCastExpression:
+                case CodeNodeType.ImplicitCastExpression:
+                    VisitImplicitCastExpression((ImplicitCastExpression)node);
+                    break;
+                case CodeNodeType.SafeCastExpression:
 					VisitSafeCastExpression((SafeCastExpression)node);
 					break;
 				case CodeNodeType.CanCastExpression:
@@ -349,6 +340,12 @@ namespace Telerik.JustDecompiler.Ast
                     break;
                 case CodeNodeType.RaiseEventExpression:
                     VisitRaiseEventExpression((RaiseEventExpression)node);
+                    break;
+                case CodeNodeType.RefVariableDeclarationExpression:
+                    VisitRefVariableDeclarationExpression((RefVariableDeclarationExpression)node);
+                    break;
+                case CodeNodeType.RefReturnExpression:
+                    VisitRefReturnExpression((RefReturnExpression)node);
                     break;
 				default:
 					throw new ArgumentException();
@@ -575,10 +572,15 @@ namespace Telerik.JustDecompiler.Ast
 			Visit(node.Target);
 		}
 
-		public virtual void VisitCastExpression(CastExpression node)
+		public virtual void VisitExplicitCastExpression(ExplicitCastExpression node)
 		{
 			Visit(node.Expression);
 		}
+
+        public virtual void VisitImplicitCastExpression(ImplicitCastExpression node)
+        {
+            Visit(node.Expression);
+        }
 
 		public virtual void VisitSafeCastExpression(SafeCastExpression node)
 		{
@@ -860,6 +862,15 @@ namespace Telerik.JustDecompiler.Ast
         public virtual void VisitRaiseEventExpression(RaiseEventExpression node)
         {
             Visit(node.Arguments);
+        }
+
+        public virtual void VisitRefVariableDeclarationExpression(RefVariableDeclarationExpression node)
+        {
+        }
+
+        public virtual void VisitRefReturnExpression(RefReturnExpression node)
+        {
+            Visit(node.Value);
         }
     }
 }

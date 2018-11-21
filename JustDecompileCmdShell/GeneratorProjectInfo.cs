@@ -1,8 +1,9 @@
-﻿using JustDecompile.Tools.MSBuildProjectBuilder;
+﻿
 using System;
-using Telerik.JustDecompiler.External;
 using Telerik.JustDecompiler.Languages;
 using Telerik.JustDecompiler.Languages.CSharp;
+using JustDecompile.Tools.MSBuildProjectBuilder;
+using Mono.Cecil.AssemblyResolver;
 
 namespace JustDecompileCmdShell
 {
@@ -25,13 +26,15 @@ namespace JustDecompileCmdShell
             this.Target = target;
             this.Out = @out;
 
-            this.Language = LanguageFactory.GetLanguage(CSharpVersion.V6);
-            this.VisualStudioVersion = VisualStudioVersion.VS2015;
-            this.frameworkVersion = FrameworkVersion.v4_6_1;
+            this.Language = LanguageFactory.GetLanguage(CSharpVersion.V7);
+            this.VisualStudioVersion = VisualStudioVersion.VS2017;
+            this.frameworkVersion = FrameworkVersion.v4_7;
             this.IsDefaultFrameworkVersion = true;
 
             this.AddDocumentation = true;
             this.RenameInvalidMembers = true;
+            this.WriteLargeNumbersInHex = true;
+            this.DecompileDangerousResources = false;
 
             this.Error = error;
         }
@@ -63,6 +66,10 @@ namespace JustDecompileCmdShell
 		public bool AddDocumentation { get; set; }
 
 		public bool RenameInvalidMembers { get; set; }
+
+        public bool WriteLargeNumbersInHex { get; set; }
+
+        public bool DecompileDangerousResources { get; set; }
 
         public IProjectGenerationError Error { get; set; }
 

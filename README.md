@@ -1,8 +1,8 @@
 # JustDecompile Engine
 
-This is the engine of the popular .NET decompiler [JustDecompile](http://www.telerik.com/products/decompiler.aspx). C# is the only programming language used.
+This is the engine of the popular .NET decompiler [JustDecompile](https://www.telerik.com/products/decompiler.aspx). C# is the only programming language used.
 
-Copyright (c) 2011 - 2016 Telerik AD
+Copyright (c) 2011 - 2018 Telerik ЕAD
 
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. You may obtain a copy of the License at
 
@@ -17,7 +17,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 - Set your startup project to ConsoleRunner.
 - Enjoy
 
-See this [getting started](http://developer.telerik.com/featured/a-look-at-the-open-source-justdecompile-engine/) post for more info. 
+See this [getting started](https://developer.telerik.com/featured/a-look-at-the-open-source-justdecompile-engine/) post for more info. 
 
 ## Working with JustDecompile Engine
 
@@ -29,14 +29,14 @@ is a console app that exposes that functionality and makes testing easy. When st
 
 We encourage and support an active, healthy community that accepts contributions from the public. We'd like you to be a part of that community.
 
-Before submitting a pull request, please, read and sign the [Contributors License Agreement] (https://drive.google.com/open?id=1HUQQ4snF53eSXWrKtuqei6cQ_NTRhgQpz1oXh5W_UB4&authuser=0)
+Before submitting a pull request, please, read and sign the [Contributors License Agreement](https://drive.google.com/open?id=1HUQQ4snF53eSXWrKtuqei6cQ_NTRhgQpz1oXh5W_UB4&authuser=0)
 
 ## How to Contribute to JustDecompile
 
 
-[Feature Suggestions](http://justdecompile.uservoice.com)
+[Feature Suggestions](https://feedback.telerik.com/Project/189)
 
-[Bug Reports / Discussion](http://www.telerik.com/forums/justdecompile/general-discussions)
+[Bug Reports / Discussion](https://www.telerik.com/forums/justdecompile/general-discussions)
 
 ## Related
 

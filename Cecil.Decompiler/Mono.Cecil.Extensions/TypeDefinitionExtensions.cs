@@ -105,15 +105,12 @@ namespace Mono.Cecil.Extensions
 
 		public static IEnumerable<IMemberDefinition> GetMembersToDecompile(this TypeDefinition typeDefinition, bool showCompilerGeneratedMembers = true)
 		{
-			if (typeDefinition.HasProperties)
-			{
-				foreach (var property in typeDefinition.Properties)
-				{
-					yield return property;
-				}
-			}
+            foreach (var property in typeDefinition.Properties)
+            {
+                yield return property;
+            }
 
-			if (typeDefinition.HasMethods)
+            if (typeDefinition.HasMethods)
 			{
 				foreach (var method in typeDefinition.Methods)
 				{
@@ -177,13 +174,13 @@ namespace Mono.Cecil.Extensions
 			return result;
 		}
 
-        public static Dictionary<FieldDefinition, EventDefinition> GetFieldToEventMap(this TypeDefinition typeDefinition)
+        public static Dictionary<FieldDefinition, EventDefinition> GetFieldToEventMap(this TypeDefinition typeDefinition, ILanguage language)
         {
             Dictionary<FieldDefinition, EventDefinition> result = new Dictionary<FieldDefinition, EventDefinition>();
             foreach (EventDefinition @event in typeDefinition.Events)
             {
                 FieldDefinition eventField;
-                AutoImplementedEventMatcher matcher = new AutoImplementedEventMatcher(@event);
+                AutoImplementedEventMatcher matcher = new AutoImplementedEventMatcher(@event, language);
                 if (matcher.IsAutoImplemented(out eventField))
                 {
                     result[eventField] = @event;
@@ -218,7 +215,7 @@ namespace Mono.Cecil.Extensions
             if (eventFields == null)
             {
 #if !NET35
-                backingFields = new HashSet<FieldReference>(typeDefinition.GetFieldToEventMap().Keys);
+                backingFields = new HashSet<FieldReference>(typeDefinition.GetFieldToEventMap(language).Keys);
 #else
                 IEnumerable<FieldDefinition> fields = typeDefinition.GetFieldToEventMap().Keys;
                 backingFields = new HashSet<FieldReference>();
